@@ -1,0 +1,65 @@
+name: DevSpace CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: devspace_test
+          POSTGRES_PASSWORD: testpass
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '18' }
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+      - name: Run schema
+        run: psql postgresql://postgres:testpass@localhost/devspace_test < backend/database/schema.sql
+        env:
+          PGPASSWORD: testpass
+      - name: Test backend
+        run: cd backend && npm test --if-present
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost/devspace_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test_secret_key_for_ci
+          NODE_ENV: test
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '18' }
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+      - name: Build frontend
+        run: cd frontend && npm run build
+        env:
+          REACT_APP_API_URL: http://localhost:3001/api
+          REACT_APP_WS_URL: http://localhost:3001
+          CI: false
+
+  deploy:
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to production
+        run: echo "Deploy step — configure your target (Vercel/Railway/Docker)"
+        # Add your deployment commands here
