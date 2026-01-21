@@ -234,3 +234,5 @@ export const registerSocketHandlers = (io, redisClient) => {
   }, 30000)
 }
 // Already handled — WEBRTC_SIGNAL relay passes fromName now
+
+// v2: presence tracking + cursor broadcast added Jan 21
