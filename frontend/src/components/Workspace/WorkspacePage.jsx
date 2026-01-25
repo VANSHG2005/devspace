@@ -734,3 +734,4 @@ export default function WorkspacePage() {
     </div>
   )
 }
+// file manager: folder tree, create/rename/delete, context menus
