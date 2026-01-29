@@ -281,3 +281,4 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
 }
 
 export default useWebRTC
+// WebRTC: echo cancellation, noise suppression, camera mirror fix
