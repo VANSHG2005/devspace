@@ -500,3 +500,4 @@ export default function Dashboard() {
     </div>
   )
 }
+// share modal: WhatsApp, email, Telegram, Twitter, copy link, native share
