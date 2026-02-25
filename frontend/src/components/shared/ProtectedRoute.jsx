@@ -21,3 +21,4 @@ export default function ProtectedRoute({ children }) {
   if (!token) return <Navigate to="/login" state={{ from: location }} replace />
   return children
 }
+// fix: profile navigation race condition, ProtectedRoute initialized check
