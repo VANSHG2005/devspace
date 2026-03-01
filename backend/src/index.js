@@ -21,10 +21,16 @@ import { registerSocketHandlers } from './sockets/index.js'
 const app = express()
 const httpServer = createServer(app)
 
-// ── Redis ──────────────────────────────────────────────────────────────────
+// ── Redis (supports Upstash TLS rediss:// and plain redis://) ─────────────
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
-const pubClient = new Redis(REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: true })
-const subClient = new Redis(REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: true })
+const isTLS = REDIS_URL.startsWith('rediss://')
+const redisOpts = {
+  maxRetriesPerRequest: null,
+  lazyConnect: true,
+  ...(isTLS ? { tls: { rejectUnauthorized: false } } : {}),
+}
+const pubClient = new Redis(REDIS_URL, redisOpts)
+const subClient = new Redis(REDIS_URL, { ...redisOpts })
 
 pubClient.on('error', (e) => console.warn('Redis pub error:', e.message))
 subClient.on('error', (e) => console.warn('Redis sub error:', e.message))
@@ -32,11 +38,26 @@ subClient.on('error', (e) => console.warn('Redis sub error:', e.message))
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }))
 app.use(compression())
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'http://localhost:3000',
+  'http://localhost:5173',
+].filter(Boolean)
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true)
+    if (allowedOrigins.some(o => origin.startsWith(o.replace(/\/$/, '')))) {
+      return callback(null, true)
+    }
+    return callback(new Error(`CORS blocked: ${origin}`))
+  },
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
 }))
+app.options('*', cors())
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
@@ -60,7 +81,7 @@ app.use((err, req, res, next) => {
 
 // ── Socket.io ──────────────────────────────────────────────────────────────
 const io = new Server(httpServer, {
-  cors: { origin: process.env.CLIENT_URL || 'http://localhost:3000', credentials: true },
+  cors: { origin: allowedOrigins, credentials: true, methods: ['GET','POST'] },
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000,

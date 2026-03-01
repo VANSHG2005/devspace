@@ -41,9 +41,11 @@ export const useSocket = (workspaceId) => {
       })
     })
 
-    // Server sends code when joining — update editor
+    // Server sends code when joining — only apply if non-empty & file matches
     socket.on(EVENTS.SYNC_CODE, ({ fileId, content }) => {
-      if (content) dispatch(setCode(content))
+      if (!content?.trim()) return                          // never blank out the editor
+      if (fileId && fileId !== activeFileIdRef.current) return  // wrong file
+      dispatch(setCode(content))
     })
 
     socket.on(EVENTS.ROOM_USERS, (users) => dispatch(setOnlineUsers(users)))
