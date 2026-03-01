@@ -8,11 +8,10 @@ import { setActivePanel } from '../../store/slices/uiSlice'
 import useSocket from '../../hooks/useSocket'
 import useAutoSave from '../../hooks/useAutoSave'
 import useWebRTC from '../../hooks/useWebRTC'
-import { emitCodeChange, emitCursorMove, emitSendMessage, emitTypingStart, emitTypingStop , emitTerminalInput, getSocket, EVENTS} from '../../utils/socket'
+import { emitCodeChange, emitCursorMove, emitSendMessage, emitTypingStart, emitTypingStop, emitTerminalInput, emitBoardStroke, emitBoardClear, emitBoardRequest, getSocket, EVENTS } from '../../utils/socket'
 import { toast } from 'react-toastify'
 import api from '../../utils/api'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { emitBoardStroke, emitBoardClear, emitBoardRequest, getSocket, EVENTS } from '../../utils/socket'
 
 // ── File type icon ────────────────────────────────────────────────────────────
 function FileIcon({ ext }) {
