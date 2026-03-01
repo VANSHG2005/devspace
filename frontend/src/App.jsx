@@ -24,10 +24,21 @@ export default function App() {
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes blink { 0%,100% { opacity:1 } 50% { opacity:0 } }
         * { box-sizing: border-box; margin: 0; padding: 0 }
-        body { font-family: 'Syne', sans-serif }
+        body { font-family: 'Syne', sans-serif; -webkit-tap-highlight-color: transparent }
         ::-webkit-scrollbar { width: 6px; height: 6px }
         ::-webkit-scrollbar-track { background: transparent }
         ::-webkit-scrollbar-thumb { background: #2d2d42; border-radius: 3px }
+        /* Responsive: prevent horizontal overflow */
+        html, body, #root { max-width: 100vw; overflow-x: hidden }
+        /* Mobile: make Monaco editor touch-friendly */
+        @media (max-width: 768px) {
+          .monaco-editor .cursor { width: 2px !important }
+          select, input, textarea { font-size: 16px !important } /* prevent zoom on focus */
+        }
+        /* Touch targets */
+        @media (max-width: 768px) {
+          button { min-height: 36px }
+        }
         ::-webkit-scrollbar-thumb:hover { background: #3d3d55 }
       `}</style>
       <Routes>

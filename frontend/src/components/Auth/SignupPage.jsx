@@ -39,7 +39,7 @@ export default function SignupPage() {
           <p style={{ color:C.muted, fontSize:14 }}>Start collaborating in minutes</p>
         </div>
 
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:32, boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:'clamp(20px, 5vw, 32px)', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
           {displayErr && (
             <div style={{ padding:'10px 14px',background:`${C.red}12`,border:`1px solid ${C.red}35`,borderRadius:8,color:C.red,fontSize:13,marginBottom:20 }}>
               ⚠️ {displayErr}

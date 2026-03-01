@@ -11,6 +11,7 @@ import useWebRTC from '../../hooks/useWebRTC'
 import { emitCodeChange, emitCursorMove, emitSendMessage, emitTypingStart, emitTypingStop , emitTerminalInput, getSocket, EVENTS} from '../../utils/socket'
 import { toast } from 'react-toastify'
 import api from '../../utils/api'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 // ── File type icon ────────────────────────────────────────────────────────────
 function FileIcon({ ext }) {
@@ -311,6 +312,9 @@ export default function WorkspacePage() {
   const [showCameraEffects, setShowCameraEffects] = useState(false)
   const [renameItem, setRenameItem] = useState(null)
   const [localFiles, setLocalFiles] = useState([])
+  const isMobile = useIsMobile()
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false)
   const [termInput, setTermInput] = useState('')
   const [termLines, setTermLines] = useState([{ text: 'DevSpace Terminal — type commands below', type: 'info' }])
   const [termHistory, setTermHistory] = useState([])
@@ -603,43 +607,71 @@ export default function WorkspacePage() {
     <div style={{ height:'100vh',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden',fontFamily:"'Syne',sans-serif",color:C.text }}>
 
       {/* Topbar */}
-      <div style={{ height:48,borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',padding:'0 12px',gap:7,flexShrink:0,background:C.surface }}>
-        <div style={{ display:'flex',alignItems:'center',gap:7,paddingRight:10,borderRight:`1px solid ${C.border}` }}>
-          <div style={{ width:24,height:24,borderRadius:6,background:'linear-gradient(135deg,#7c6af7,#ff7eb3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11 }}>{'<>'}</div>
-          <span style={{ fontWeight:800,fontSize:13 }}>DevSpace</span>
+      <div style={{ height:48,borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',padding:'0 8px',gap:6,flexShrink:0,background:C.surface,overflow:'hidden' }}>
+        {/* Mobile: sidebar toggle */}
+        {isMobile && (
+          <button onClick={()=>setMobileSidebarOpen(o=>!o)} style={{ ...S.btn(mobileSidebarOpen),padding:'5px 8px',flexShrink:0 }}>☰</button>
+        )}
+        <div style={{ display:'flex',alignItems:'center',gap:6,paddingRight:8,borderRight:`1px solid ${C.border}`,flexShrink:0 }}>
+          <div style={{ width:22,height:22,borderRadius:5,background:'linear-gradient(135deg,#7c6af7,#ff7eb3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10 }}>{'<>'}</div>
+          {!isMobile && <span style={{ fontWeight:800,fontSize:13 }}>DevSpace</span>}
         </div>
-        <span style={{ fontSize:13,fontWeight:700 }}>{workspace?.name||'Workspace'}</span>
-        <span style={{ fontSize:11,color:C.muted,fontFamily:'monospace' }}>/{workspaceId}</span>
-        <div style={{ display:'flex',alignItems:'center',gap:4 }}>
+        <span style={{ fontSize:12,fontWeight:700,flexShrink:0,maxWidth:isMobile?90:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{workspace?.name||'Workspace'}</span>
+        {!isMobile && <span style={{ fontSize:11,color:C.muted,fontFamily:'monospace' }}>/{workspaceId}</span>}
+        <div style={{ display:'flex',alignItems:'center',gap:3,flexShrink:0 }}>
           <div style={{ width:6,height:6,borderRadius:'50%',background:savedStatus==='saved'?C.green:savedStatus==='saving'?C.yellow:C.red }} />
-          <span style={{ fontSize:10,color:savedStatus==='saved'?C.green:C.yellow,fontFamily:'monospace' }}>{savedStatus}</span>
+          {!isMobile && <span style={{ fontSize:10,color:savedStatus==='saved'?C.green:C.yellow,fontFamily:'monospace' }}>{savedStatus}</span>}
         </div>
-        <div style={{ marginLeft:'auto',display:'flex',alignItems:'center',gap:5 }}>
-          <div style={{ display:'flex',gap:2,paddingRight:8,borderRight:`1px solid ${C.border}`,alignItems:'center' }}>
-            {(onlineUsers||[]).slice(0,6).map(u=>(
-              <div key={u.id} title={u.name} style={{ width:26,height:26,borderRadius:'50%',background:u.avatar_url?'none':`linear-gradient(135deg,${u.color||C.accent}80,${u.color||C.accent})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:'#fff',border:`2px solid ${C.surface}`,overflow:'hidden' }}>
+        <div style={{ marginLeft:'auto',display:'flex',alignItems:'center',gap:4,flexShrink:0 }}>
+          {/* Online users - fewer on mobile */}
+          <div style={{ display:'flex',gap:2,paddingRight:6,borderRight:`1px solid ${C.border}`,alignItems:'center' }}>
+            {(onlineUsers||[]).slice(0,isMobile?2:5).map(u=>(
+              <div key={u.id} title={u.name} style={{ width:24,height:24,borderRadius:'50%',background:u.avatar_url?'none':`linear-gradient(135deg,${u.color||C.accent}80,${u.color||C.accent})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:700,color:'#fff',border:`2px solid ${C.surface}`,overflow:'hidden',flexShrink:0 }}>
                 {u.avatar_url?<img src={u.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:u.name?.charAt(0).toUpperCase()}
               </div>
             ))}
-            <span style={{ fontSize:10,color:C.muted,marginLeft:2,fontFamily:'monospace' }}>{(onlineUsers||[]).length||1} online</span>
+            <span style={{ fontSize:10,color:C.muted,marginLeft:1,fontFamily:'monospace' }}>{(onlineUsers||[]).length||1}</span>
           </div>
-          <button style={S.btn(micOn)} onClick={async()=>{ if(micOn){stopVoiceChat();toast.info('Mic off')} else{try{await startVoiceChat();toast.success('🎙️ Voice on')}catch(e){toast.error('Mic: '+e.message)}} }}>🎙️ {micOn?'Live':'Mic'}</button>
-          <button style={S.btn(cameraOn)} onClick={async()=>{ if(cameraOn){stopCameraShare();toast.info('Camera off')} else{try{await startCameraShare();toast.success('📷 Camera on')}catch(e){toast.error('Camera: '+e.message)}} }}>📷 {cameraOn?'On':'Cam'}</button>
-          {cameraOn && <button style={S.btn(false)} onClick={()=>setShowCameraEffects(true)} title="Camera effects">✨</button>}
-          <button style={S.btn(screenOn)} onClick={async()=>{ if(screenOn){stopScreenShare();toast.info('Share stopped')} else{try{await startScreenShare();toast.success('🖥️ Sharing')}catch(e){if(e.name!=='NotAllowedError')toast.error(e.message)}} }}>🖥️ {screenOn?'Stop':'Share'}</button>
-          <button style={S.btn(false)} onClick={handleRunCode}>▶ Run</button>
-          <button style={S.btn(showVersions)} onClick={()=>{ setShowVersions(true); dispatch(fetchVersions({workspaceId,fileId:activeFileId})) }}>🔀 Ver</button>
-          <button style={S.btn(false)} onClick={()=>setShowInviteModal(true)}>✉️</button>
-          <button style={S.btn(copied)} onClick={copyLink}>{copied?'✓ Copied':'🔗 Share'}</button>
-          <button onClick={()=>navigate('/dashboard')} style={S.btn(false,true)}>Leave ↗</button>
+          {/* Mobile: show only essential buttons */}
+          {isMobile ? (<>
+            <button style={S.btn(micOn)} onClick={async()=>{ if(micOn){stopVoiceChat()}else{try{await startVoiceChat()}catch(e){toast.error('Mic: '+e.message)}} }}>{micOn?'🔴':'🎙️'}</button>
+            <button style={S.btn(false)} onClick={handleRunCode}>▶</button>
+            <button style={S.btn(false)} onClick={()=>setMobilePanelOpen(o=>!o)}>⚡</button>
+            <button onClick={()=>navigate('/dashboard')} style={S.btn(false,true)}>✕</button>
+          </>) : (<>
+            <button style={S.btn(micOn)} onClick={async()=>{ if(micOn){stopVoiceChat();toast.info('Mic off')} else{try{await startVoiceChat();toast.success('🎙️ Voice on')}catch(e){toast.error('Mic: '+e.message)}} }}>🎙️ {micOn?'Live':'Mic'}</button>
+            <button style={S.btn(cameraOn)} onClick={async()=>{ if(cameraOn){stopCameraShare();toast.info('Camera off')} else{try{await startCameraShare();toast.success('📷 Camera on')}catch(e){toast.error('Camera: '+e.message)}} }}>📷 {cameraOn?'On':'Cam'}</button>
+            {cameraOn && <button style={S.btn(false)} onClick={()=>setShowCameraEffects(true)} title="Camera effects">✨</button>}
+            <button style={S.btn(screenOn)} onClick={async()=>{ if(screenOn){stopScreenShare();toast.info('Share stopped')} else{try{await startScreenShare();toast.success('🖥️ Sharing')}catch(e){if(e.name!=='NotAllowedError')toast.error(e.message)}} }}>🖥️ {screenOn?'Stop':'Share'}</button>
+            <button style={S.btn(false)} onClick={handleRunCode}>▶ Run</button>
+            <button style={S.btn(showVersions)} onClick={()=>{ setShowVersions(true); dispatch(fetchVersions({workspaceId,fileId:activeFileId})) }}>🔀 Ver</button>
+            <button style={S.btn(false)} onClick={()=>setShowInviteModal(true)}>✉️</button>
+            <button style={S.btn(copied)} onClick={copyLink}>{copied?'✓ Copied':'🔗 Share'}</button>
+            <button onClick={()=>navigate('/dashboard')} style={S.btn(false,true)}>Leave ↗</button>
+          </>)}
         </div>
       </div>
 
       {/* Body */}
-      <div ref={bodyRef} style={{ flex:1,display:'flex',overflow:'hidden' }}>
+      <div ref={bodyRef} style={{ flex:1,display:'flex',overflow:'hidden',position:'relative' }}>
+        {/* Mobile overlay backdrop */}
+        {isMobile && (mobileSidebarOpen || mobilePanelOpen) && (
+          <div onClick={()=>{setMobileSidebarOpen(false);setMobilePanelOpen(false)}}
+            style={{ position:'absolute',inset:0,background:'rgba(0,0,0,0.6)',zIndex:30 }} />
+        )}
 
         {/* Sidebar */}
-        <div style={{ width:sidebarW,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',background:C.surface,flexShrink:0 }}>
+        <div style={{
+          width: isMobile ? 240 : sidebarW,
+          borderRight:`1px solid ${C.border}`,
+          display:'flex',flexDirection:'column',background:C.surface,flexShrink:0,
+          ...(isMobile ? {
+            position:'absolute', top:0, left:0, bottom:0, zIndex:40,
+            transform: mobileSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+            transition:'transform 0.25s ease',
+            boxShadow: mobileSidebarOpen ? '4px 0 24px rgba(0,0,0,0.5)' : 'none',
+          } : {}),
+        }}>
           <div style={{ padding:'8px 10px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
             <span style={{ fontSize:10,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.5px' }}>Explorer</span>
             <div style={{ display:'flex',gap:4 }}>
@@ -665,10 +697,10 @@ export default function WorkspacePage() {
 
             {fileTree.folders.map(folder => (
               <FolderRow key={folder.id} folder={folder} isOpen={openFolders[folder.folderName]} onToggle={()=>setOpenFolders(o=>({...o,[folder.folderName]:!o[folder.folderName]}))} onRename={f=>setRenameItem({item:f,isFolder:true})} onDelete={f=>setDeleteConfirm(f)} workspaceId={workspaceId}>
-                {folder.children.map(f=><FileRow key={f.id} file={f} isActive={f.id===activeFileId} onSelect={()=>dispatch(setActiveFile(f))} onRename={f=>setRenameItem({item:f,isFolder:false})} onDelete={f=>setDeleteConfirm(f)} workspaceId={workspaceId} indent={1} />)}
+                {folder.children.map(f=><FileRow key={f.id} file={f} isActive={f.id===activeFileId} onSelect={()=>{dispatch(setActiveFile(f));if(isMobile)setMobileSidebarOpen(false)}} onRename={f=>setRenameItem({item:f,isFolder:false})} onDelete={f=>setDeleteConfirm(f)} workspaceId={workspaceId} indent={1} />)}
               </FolderRow>
             ))}
-            {fileTree.rootFiles.map(f=><FileRow key={f.id} file={f} isActive={f.id===activeFileId} onSelect={()=>dispatch(setActiveFile(f))} onRename={f=>setRenameItem({item:f,isFolder:false})} onDelete={f=>setDeleteConfirm(f)} workspaceId={workspaceId} />)}
+            {fileTree.rootFiles.map(f=><FileRow key={f.id} file={f} isActive={f.id===activeFileId} onSelect={()=>{dispatch(setActiveFile(f));if(isMobile)setMobileSidebarOpen(false)}} onRename={f=>setRenameItem({item:f,isFolder:false})} onDelete={f=>setDeleteConfirm(f)} workspaceId={workspaceId} />)}
           </div>
 
           <div style={{ padding:'8px 12px',borderTop:`1px solid ${C.border}` }}>
@@ -725,10 +757,20 @@ export default function WorkspacePage() {
         <DragHandle onDrag={handleRightDrag} />
 
         {/* Right panel */}
-        <div style={{ width:rightW,borderLeft:`1px solid ${C.border}`,display:'flex',flexDirection:'column',flexShrink:0 }}>
+        <div style={{
+          width: isMobile ? '100%' : rightW,
+          borderLeft:`1px solid ${C.border}`,
+          display:'flex',flexDirection:'column',flexShrink:0,
+          ...(isMobile ? {
+            position:'absolute', top:0, right:0, bottom:0, zIndex:40,
+            transform: mobilePanelOpen ? 'translateX(0)' : 'translateX(100%)',
+            transition:'transform 0.25s ease',
+            boxShadow: mobilePanelOpen ? '-4px 0 24px rgba(0,0,0,0.5)' : 'none',
+          } : {}),
+        }}>
           <div style={{ display:'flex',borderBottom:`1px solid ${C.border}`,background:C.surface }}>
             {[{id:'chat',e:'💬',l:'Chat'},{id:'terminal',e:'⌨️',l:'Term'},{id:'ai',e:'✨',l:'AI'},{id:'whiteboard',e:'🎨',l:'Board'}].map(p=>(
-              <button key={p.id} style={S.tab(p.id)} onClick={()=>dispatch(setActivePanel(p.id))}><span>{p.e}</span><span>{p.l}</span></button>
+              <button key={p.id} style={S.tab(p.id)} onClick={()=>{dispatch(setActivePanel(p.id));if(isMobile)setMobilePanelOpen(true)}}><span>{p.e}</span><span>{p.l}</span></button>
             ))}
           </div>
 
@@ -922,6 +964,27 @@ export default function WorkspacePage() {
           )}
         </div>
       </div>
+
+      {/* Mobile bottom nav */}
+      {isMobile && (
+        <div style={{ position:'fixed',bottom:0,left:0,right:0,height:52,background:C.surface,borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',zIndex:50,paddingBottom:'env(safe-area-inset-bottom)' }}>
+          <button onClick={()=>setMobileSidebarOpen(o=>!o)} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:mobileSidebarOpen?C.accent:C.muted,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
+            <span>📁</span><span style={{fontSize:9,fontWeight:700}}>Files</span>
+          </button>
+          <button onClick={()=>{setMobilePanelOpen(true);dispatch(setActivePanel('chat'))}} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:activePanel==='chat'&&mobilePanelOpen?C.accent:C.muted,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
+            <span>💬</span><span style={{fontSize:9,fontWeight:700}}>Chat</span>
+          </button>
+          <button onClick={handleRunCode} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:C.green,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
+            <span>▶</span><span style={{fontSize:9,fontWeight:700}}>Run</span>
+          </button>
+          <button onClick={()=>{setMobilePanelOpen(true);dispatch(setActivePanel('terminal'))}} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:activePanel==='terminal'&&mobilePanelOpen?C.accent:C.muted,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
+            <span>⌨️</span><span style={{fontSize:9,fontWeight:700}}>Term</span>
+          </button>
+          <button onClick={()=>{setMobilePanelOpen(true);dispatch(setActivePanel('whiteboard'))}} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:activePanel==='whiteboard'&&mobilePanelOpen?C.accent:C.muted,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
+            <span>🎨</span><span style={{fontSize:9,fontWeight:700}}>Board</span>
+          </button>
+        </div>
+      )}
 
       {/* Floating media */}
       {mediaStreams.length>0 && <FloatingMedia streams={mediaStreams} onClose={()=>{stopScreenShare();stopCameraShare();setMediaStreams([])}} />}

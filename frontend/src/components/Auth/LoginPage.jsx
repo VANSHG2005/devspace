@@ -27,14 +27,14 @@ export default function LoginPage() {
     <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:C.bg, backgroundImage:`linear-gradient(${C.border}50 1px,transparent 1px),linear-gradient(90deg,${C.border}50 1px,transparent 1px)`, backgroundSize:'40px 40px' }}>
       <div style={{ position:'fixed', top:'20%', left:'50%', transform:'translateX(-50%)', width:600, height:400, background:`radial-gradient(ellipse,${C.accent}15,transparent 70%)`, pointerEvents:'none' }} />
 
-      <div style={{ width:'100%', maxWidth:440, padding:'0 24px', position:'relative', zIndex:1 }}>
+      <div style={{ width:'100%', maxWidth:440, padding:'0 16px', position:'relative', zIndex:1, boxSizing:'border-box' }}>
         <div style={{ textAlign:'center', marginBottom:32 }}>
           <div style={{ width:52,height:52,borderRadius:14,background:`linear-gradient(135deg,${C.accent},#ff7eb3)`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:24,boxShadow:`0 8px 32px ${C.accent}40` }}>⌨️</div>
           <h1 style={{ fontSize:28,fontWeight:800,letterSpacing:'-1px',marginBottom:6 }}>Welcome back</h1>
           <p style={{ color:C.muted, fontSize:14 }}>Sign in to your DevSpace</p>
         </div>
 
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:32, boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:'clamp(20px, 5vw, 32px)', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
           {error && (
             <div style={{ padding:'10px 14px',background:`${C.red}12`,border:`1px solid ${C.red}35`,borderRadius:8,color:C.red,fontSize:13,marginBottom:20,display:'flex',alignItems:'center',gap:8 }}>
               ⚠️ {error}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import { useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
 import { logout } from '../../store/slices/authSlice'
@@ -267,6 +268,7 @@ export default function Dashboard() {
   const dispatch = useDispatch()
   const { user } = useSelector(s => s.auth)
   const { workspaces, loading } = useSelector(s => s.workspace)
+  const isMobile = useIsMobile()
   const [showCreate, setShowCreate] = useState(false)
   const [joinId, setJoinId] = useState('')
   const [newWs, setNewWs] = useState({ name:'', language:'javascript', description:'' })
@@ -376,20 +378,20 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={{ flex:1, padding:'36px 48px', maxWidth:1280, width:'100%', margin:'0 auto' }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:36 }}>
+      <div style={{ flex:1, padding: isMobile ? '16px' : '36px 48px', maxWidth:1280, width:'100%', margin:'0 auto' }}>
+        <div style={{ display:'flex', alignItems: isMobile ? 'stretch' : 'flex-start', flexDirection: isMobile ? 'column' : 'row', justifyContent:'space-between', gap: isMobile ? 12 : 0, marginBottom: isMobile ? 20 : 36 }}>
           <div>
             <h1 style={{ fontSize:30,fontWeight:800,letterSpacing:'-1.5px',marginBottom:4 }}>{greeting}, {user?.name?.split(' ')[0]} 👋</h1>
             <p style={{ color:C.muted,fontSize:14 }}>{loading?'Loading...':`${filtered.length} workspace${filtered.length!==1?'s':''}`}</p>
           </div>
-          <button onClick={()=>setShowCreate(!showCreate)} style={{ padding:'11px 22px',borderRadius:9,background:C.accent,border:'none',color:'#fff',fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'inherit',boxShadow:`0 6px 24px ${C.accent}30`,display:'flex',alignItems:'center',gap:7 }}>✦ New Workspace</button>
+          <button onClick={()=>setShowCreate(!showCreate)} style={{ padding:'11px 22px',borderRadius:9,background:C.accent,border:'none',color:'#fff',fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'inherit',boxShadow:`0 6px 24px ${C.accent}30`,display:'flex',alignItems:'center',justifyContent:'center',gap:7,width:isMobile?'100%':'auto' }}>✦ New Workspace</button>
         </div>
 
         {/* Create form */}
         {showCreate && (
           <div style={{ background:C.surface,border:`1px solid ${C.accent}35`,borderRadius:14,padding:28,marginBottom:28,boxShadow:`0 8px 32px ${C.accent}10` }}>
             <h3 style={{ fontSize:15,fontWeight:700,marginBottom:20 }}>✦ Create New Workspace</h3>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:14 }}>
+            <div style={{ display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:16,marginBottom:14 }}>
               <div>
                 <label style={{ display:'block',fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.5px' }}>Name</label>
                 <input value={newWs.name} onChange={e=>setNewWs({...newWs,name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&handleCreate()} placeholder="e.g. React Dashboard" style={inp()}
