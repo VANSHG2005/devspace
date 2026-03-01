@@ -8,7 +8,7 @@ import { setActivePanel } from '../../store/slices/uiSlice'
 import useSocket from '../../hooks/useSocket'
 import useAutoSave from '../../hooks/useAutoSave'
 import useWebRTC from '../../hooks/useWebRTC'
-import { emitCodeChange, emitCursorMove, emitSendMessage, emitTypingStart, emitTypingStop } from '../../utils/socket'
+import { emitCodeChange, emitCursorMove, emitSendMessage, emitTypingStart, emitTypingStop , emitTerminalInput, getSocket, EVENTS} from '../../utils/socket'
 import { toast } from 'react-toastify'
 import api from '../../utils/api'
 
@@ -303,20 +303,72 @@ export default function WorkspacePage() {
   const [copied, setCopied] = useState(false)
   const [wbMode, setWbMode] = useState('pen')
   const [wbColor, setWbColor] = useState('#7c6af7')
+  const [wbSize, setWbSize] = useState(3)
+  const [wbOffset, setWbOffset] = useState({x:0,y:0})
+  const [wbScale, setWbScale] = useState(1)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [mediaStreams, setMediaStreams] = useState([])
   const [showCameraEffects, setShowCameraEffects] = useState(false)
   const [renameItem, setRenameItem] = useState(null)
   const [localFiles, setLocalFiles] = useState([])
+  const [termInput, setTermInput] = useState('')
+  const [termLines, setTermLines] = useState([{ text: 'DevSpace Terminal — type commands below', type: 'info' }])
+  const [termHistory, setTermHistory] = useState([])
+  const [termHistIdx, setTermHistIdx] = useState(-1)
+  const [showPreview, setShowPreview] = useState(false)
+  const termEndRef = useRef(null)
+  const termInputRef = useRef(null)
 
   const chatEndRef = useRef(null)
   const typingRef = useRef(null)
   const canvasRef = useRef(null)
   const drawing = useRef(false); const lastPos = useRef(null)
+  const panning = useRef(false); const panStart = useRef(null)
+  const strokesRef = useRef([])   // persist all strokes for infinite canvas
+  const currentStroke = useRef([])
   const editorRef = useRef(null); const decsRef = useRef([])
 
   useSocket(workspaceId)
   useAutoSave(workspaceId)
+
+  // ── Terminal socket output ──────────────────────────────────────────────
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+    const handler = ({ line, type }) => {
+      setTermLines(prev => [...prev, { text: line, type: type || 'result' }])
+    }
+    socket.on(EVENTS.TERMINAL_OUTPUT, handler)
+    return () => socket.off(EVENTS.TERMINAL_OUTPUT, handler)
+  }, [workspaceId])
+
+  useEffect(() => {
+    termEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [termLines])
+
+  const handleTermSubmit = (e) => {
+    if (e.key === 'Enter' && termInput.trim()) {
+      const cmd = termInput.trim()
+      setTermHistory(h => [cmd, ...h.slice(0, 49)])
+      setTermHistIdx(-1)
+      setTermInput('')
+      emitTerminalInput(workspaceId, cmd)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setTermHistIdx(i => {
+        const next = Math.min(i + 1, termHistory.length - 1)
+        setTermInput(termHistory[next] || '')
+        return next
+      })
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setTermHistIdx(i => {
+        const next = Math.max(i - 1, -1)
+        setTermInput(next === -1 ? '' : termHistory[next] || '')
+        return next
+      })
+    }
+  }
   const { micOn, screenOn, cameraOn, startVoiceChat, stopVoiceChat, startScreenShare, stopScreenShare, startCameraShare, stopCameraShare } = useWebRTC(workspaceId, setMediaStreams)
 
   // Sync localFiles with redux files
@@ -390,7 +442,7 @@ export default function WorkspacePage() {
       catch { toast.error('Failed to create folder') }
     } else {
       const ext = newItemName.split('.').pop()
-      const lm = {js:'javascript',ts:'typescript',py:'python',jsx:'javascript',tsx:'typescript',css:'css',json:'json',md:'markdown',sql:'sql',html:'html'}
+      const lm = {js:'javascript',ts:'typescript',py:'python',jsx:'react',tsx:'react-ts',css:'css',json:'json',md:'markdown',sql:'sql',html:'html',c:'c',cpp:'cpp',cc:'cpp',java:'java',go:'go',rs:'rust',rb:'ruby',php:'php',vue:'vue',svelte:'svelte'}
       try { await dispatch(createFile({ workspaceId, name:newItemName, language:lm[ext]||'plaintext' })).unwrap(); toast.success(`"${newItemName}" created`) }
       catch { toast.error('Failed to create file') }
     }
@@ -410,7 +462,35 @@ export default function WorkspacePage() {
     dispatch(fetchFiles(workspaceId))
   }
 
-  const handleRunCode = () => { dispatch(setActivePanel('terminal')); dispatch(clearExecutionOutput()); dispatch(executeCode({ code, language })) }
+  const handleRunCode = () => {
+    const execLang = {
+      javascript: 'javascript', typescript: 'typescript',
+      python: 'python', c: 'c', cpp: 'cpp',
+      java: 'java', go: 'go', rust: 'rust',
+      html: 'html', react: 'react', vue: 'vue', svelte: 'svelte',
+      js: 'javascript', ts: 'typescript', py: 'python',
+      rs: 'rust', jsx: 'react', tsx: 'react-ts',
+    }[language] || language
+
+    // HTML/React → open inline preview
+    if (['html', 'tailwind', 'react', 'react-ts', 'jsx', 'tsx'].includes(execLang)) {
+      setShowPreview(true)
+      dispatch(setActivePanel('terminal'))
+      return
+    }
+
+    setShowPreview(false)
+    dispatch(setActivePanel('terminal'))
+    setTermLines(prev => [...prev, { text: `▶ Running ${execLang}...`, type: 'info' }])
+    dispatch(clearExecutionOutput())
+    dispatch(executeCode({ code, language: execLang })).then(action => {
+      if (action.payload) {
+        const { output, error } = action.payload
+        if (output) output.split('\n').forEach(l => setTermLines(p => [...p, { text: l, type: 'result' }]))
+        if (error) error.split('\n').forEach(l => setTermLines(p => [...p, { text: l, type: 'error' }]))
+      }
+    })
+  }
 
   const handleAskAI = async () => {
     if (!aiInput.trim()||aiLoading) return
@@ -432,16 +512,83 @@ export default function WorkspacePage() {
 
   const copyLink = () => { navigator.clipboard.writeText(`${window.location.origin}/workspace/${workspaceId}`); setCopied(true); toast.success('Link copied!'); setTimeout(()=>setCopied(false),2000) }
 
-  const startDraw=(e)=>{ drawing.current=true; const r=canvasRef.current.getBoundingClientRect(); lastPos.current={x:e.clientX-r.left,y:e.clientY-r.top} }
-  const doDraw=(e)=>{
-    if(!drawing.current||!lastPos.current) return
-    const c=canvasRef.current,ctx=c.getContext('2d'),r=c.getBoundingClientRect()
-    const x=e.clientX-r.left,y=e.clientY-r.top
-    ctx.strokeStyle=wbMode==='eraser'?'#111118':wbColor; ctx.lineWidth=wbMode==='eraser'?24:2.5; ctx.lineCap='round'; ctx.lineJoin='round'
-    ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(x,y); ctx.stroke(); lastPos.current={x,y}
+  // Convert screen coords → canvas world coords
+  const toWorld=(e,r)=>({ x:(e.clientX-r.left)/wbScale - wbOffset.x, y:(e.clientY-r.top)/wbScale - wbOffset.y })
+
+  const redrawCanvas=()=>{
+    const c=canvasRef.current; if(!c) return
+    const ctx=c.getContext('2d')
+    ctx.clearRect(0,0,c.width,c.height)
+    ctx.save()
+    ctx.scale(wbScale,wbScale)
+    ctx.translate(wbOffset.x,wbOffset.y)
+    strokesRef.current.forEach(s=>{
+      if(s.points.length<2) return
+      ctx.beginPath(); ctx.strokeStyle=s.color; ctx.lineWidth=s.size; ctx.lineCap='round'; ctx.lineJoin='round'
+      if(s.eraser) { ctx.globalCompositeOperation='destination-out'; ctx.lineWidth=s.size*3 }
+      else ctx.globalCompositeOperation='source-over'
+      ctx.moveTo(s.points[0].x,s.points[0].y)
+      s.points.slice(1).forEach(p=>ctx.lineTo(p.x,p.y))
+      ctx.stroke()
+    })
+    ctx.globalCompositeOperation='source-over'
+    ctx.restore()
   }
-  const stopDraw=()=>{ drawing.current=false }
-  const clearCanvas=()=>{ const ctx=canvasRef.current?.getContext('2d'); if(ctx) ctx.clearRect(0,0,canvasRef.current.width,canvasRef.current.height) }
+
+  const startDraw=(e)=>{
+    if(e.button===1||(e.button===0&&e.altKey)){ panning.current=true; panStart.current={x:e.clientX-wbOffset.x*wbScale,y:e.clientY-wbOffset.y*wbScale}; return }
+    drawing.current=true
+    const r=canvasRef.current.getBoundingClientRect()
+    const wp=toWorld(e,r)
+    lastPos.current=wp
+    currentStroke.current=[wp]
+  }
+  const doDraw=(e)=>{
+    const r=canvasRef.current.getBoundingClientRect()
+    if(panning.current){
+      const nx=(e.clientX-panStart.current.x)/wbScale, ny=(e.clientY-panStart.current.y)/wbScale
+      setWbOffset({x:nx,y:ny}); return
+    }
+    if(!drawing.current||!lastPos.current) return
+    const wp=toWorld(e,r)
+    currentStroke.current.push(wp)
+    // Draw incremental segment on canvas for performance
+    const c=canvasRef.current,ctx=c.getContext('2d')
+    ctx.save(); ctx.scale(wbScale,wbScale); ctx.translate(wbOffset.x,wbOffset.y)
+    ctx.strokeStyle=wbMode==='eraser'?'rgba(0,0,0,1)':wbColor
+    ctx.lineWidth=wbMode==='eraser'?wbSize*3:wbSize
+    ctx.lineCap='round'; ctx.lineJoin='round'
+    if(wbMode==='eraser') ctx.globalCompositeOperation='destination-out'
+    ctx.beginPath(); ctx.moveTo(lastPos.current.x,lastPos.current.y); ctx.lineTo(wp.x,wp.y); ctx.stroke()
+    ctx.restore()
+    lastPos.current=wp
+  }
+  const stopDraw=()=>{
+    panning.current=false
+    if(!drawing.current) return
+    drawing.current=false
+    if(currentStroke.current.length>1){
+      strokesRef.current.push({ points:[...currentStroke.current], color:wbColor, size:wbSize, eraser:wbMode==='eraser' })
+    }
+    currentStroke.current=[]
+  }
+  const clearCanvas=()=>{ strokesRef.current=[]; redrawCanvas() }
+  const undoCanvas=()=>{ strokesRef.current.pop(); redrawCanvas() }
+
+  // Zoom with scroll wheel
+  const onWbWheel=(e)=>{
+    e.preventDefault()
+    const factor=e.deltaY<0?1.1:0.9
+    setWbScale(s=>Math.min(5,Math.max(0.2,s*factor)))
+  }
+
+  // Resize observer: fit canvas to container without losing strokes
+  const wbContainerRef = useRef(null)
+  useEffect(()=>{
+    const el=wbContainerRef.current; if(!el) return
+    const obs=new ResizeObserver(()=>{ if(canvasRef.current){ canvasRef.current.width=el.offsetWidth; canvasRef.current.height=el.offsetHeight; redrawCanvas() } })
+    obs.observe(el); return ()=>obs.disconnect()
+  }, [wbOffset, wbScale])
 
   const C = { bg:'#0a0a0f',surface:'#111118',border:'#1e1e2e',accent:'#7c6af7',green:'#3dffa0',red:'#ff5370',yellow:'#ffca28',text:'#e2e2f0',muted:'#6e6e8f' }
   const S = {
@@ -614,20 +761,101 @@ export default function WorkspacePage() {
             </div>
           )}
 
-          {/* Terminal */}
+          {/* Terminal + Preview */}
           {activePanel==='terminal' && (
             <div style={{ flex:1,display:'flex',flexDirection:'column',overflow:'hidden',background:'#0d1117' }}>
-              <div style={{ flex:1,overflowY:'auto',padding:'12px',fontFamily:"'JetBrains Mono',monospace",fontSize:12,lineHeight:1.8 }}>
-                <div style={{ color:C.muted,marginBottom:6 }}>DevSpace Terminal · {language} · {workspaceId}</div>
-                {executionOutput.map((l,i)=><div key={i} style={{ color:l.type==='result'?C.green:l.type==='error'?C.red:'#89ddff',marginBottom:2,whiteSpace:'pre-wrap',wordBreak:'break-all' }}>{l.type==='result'&&<span style={{color:C.muted}}>▸ </span>}{l.type==='error'&&<span style={{color:C.red}}>✗ </span>}{l.text}</div>)}
-                {executionLoading && <div style={{ color:C.yellow,display:'flex',alignItems:'center',gap:8 }}><div style={{ width:11,height:11,borderRadius:'50%',border:'2px solid rgba(255,202,40,0.3)',borderTopColor:C.yellow,animation:'spin 0.7s linear infinite' }} />Running...</div>}
-                {!executionLoading&&executionOutput.length===0 && <div style={{ color:'#3a3a55',fontStyle:'italic' }}>No output. Click ▶ Run.</div>}
-                <div style={{ marginTop:8 }}><span style={{ color:C.green }}>devspace</span><span style={{ color:C.accent }}>:~$ </span><span style={{ borderRight:`2px solid ${C.accent}`,animation:'blink 1s infinite' }}>&nbsp;</span></div>
+
+              {/* Tab bar: Terminal / Preview */}
+              <div style={{ display:'flex',borderBottom:'1px solid #1a1a2e',flexShrink:0 }}>
+                <button onClick={()=>setShowPreview(false)} style={{ flex:1,padding:'7px',background:!showPreview?'#0d1117':'transparent',border:'none',borderBottom:!showPreview?`2px solid ${C.accent}`:'2px solid transparent',color:!showPreview?C.accent:C.muted,cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700 }}>⌨️ Terminal</button>
+                <button onClick={()=>setShowPreview(true)} style={{ flex:1,padding:'7px',background:showPreview?'#0d1117':'transparent',border:'none',borderBottom:showPreview?`2px solid ${C.accent}`:'2px solid transparent',color:showPreview?C.accent:C.muted,cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700 }}>🌐 Preview</button>
               </div>
-              <div style={{ padding:'7px 10px',borderTop:'1px solid #1a1a2e',display:'flex',gap:7 }}>
-                <button onClick={handleRunCode} style={{ flex:1,padding:'7px',borderRadius:7,background:`${C.green}12`,border:`1px solid ${C.green}30`,color:C.green,cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700 }}>▶ Run {language}</button>
-                <button onClick={()=>dispatch(clearExecutionOutput())} style={{ padding:'7px 11px',borderRadius:7,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,cursor:'pointer',fontFamily:'inherit',fontSize:11 }}>Clear</button>
-              </div>
+
+              {/* ── PREVIEW TAB ── */}
+              {showPreview && (
+                <div style={{ flex:1,display:'flex',flexDirection:'column',overflow:'hidden' }}>
+                  <div style={{ padding:'5px 10px',borderBottom:'1px solid #1a1a2e',display:'flex',alignItems:'center',gap:8,flexShrink:0 }}>
+                    <span style={{ fontSize:10,color:C.muted }}>Live preview · {language}</span>
+                    <button onClick={()=>setShowPreview(false)} style={{ marginLeft:'auto',padding:'2px 8px',borderRadius:5,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,cursor:'pointer',fontSize:10,fontFamily:'inherit' }}>← Terminal</button>
+                  </div>
+                  <iframe
+                    key={code}
+                    srcDoc={
+                      ['react','react-ts','jsx','tsx'].includes(language)
+                        ? `<!DOCTYPE html><html><head>
+                            <meta charset="UTF-8"/>
+                            <script src="https://unpkg.com/react@18/umd/react.development.js"><\/script>
+                            <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>
+                            <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
+                            <style>*{box-sizing:border-box}body{margin:0;background:#fff;font-family:sans-serif}</style>
+                          </head><body>
+                            <div id="root"></div>
+                            <script type="text/babel">
+                              ${code.replace(/export\s+default\s+/g, 'window.__DevSpaceComp__ = ')}
+                              const Root = window.__DevSpaceComp__ || (typeof App !== 'undefined' ? App : () => React.createElement('p',null,'Name your component "App" or use export default'))
+                              ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Root))
+                            <\/script>
+                          </body></html>`
+                        : code
+                    }
+                    style={{ flex:1,border:'none',background:'#fff' }}
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+                    title="preview"
+                  />
+                </div>
+              )}
+
+              {/* ── TERMINAL TAB ── */}
+              {!showPreview && (
+                <>
+                  {/* Output area */}
+                  <div
+                    style={{ flex:1,overflowY:'auto',padding:'10px 14px',fontFamily:"'JetBrains Mono','Fira Code',monospace",fontSize:12,lineHeight:1.8,cursor:'text' }}
+                    onClick={()=>termInputRef.current?.focus()}
+                  >
+                    <div style={{ color:'#3a3a55',marginBottom:4,fontSize:11 }}>DevSpace Shell · {workspaceId} · type commands below ↓</div>
+                    {termLines.map((l,i)=>(
+                      <div key={i} style={{ color: l.type==='result'?C.green : l.type==='error'?C.red : l.type==='warn'?C.yellow : l.type==='cmd'?'#e2e2f0' : l.type==='info'?'#89ddff' : '#3a3a55', marginBottom:1, whiteSpace:'pre-wrap', wordBreak:'break-all' }}>
+                        {l.type==='error'&&<span style={{color:C.red}}>✗ </span>}
+                        {l.type==='result'&&<span style={{color:C.muted}}>▸ </span>}
+                        {l.text}
+                      </div>
+                    ))}
+                    {executionLoading && (
+                      <div style={{ color:C.yellow,display:'flex',alignItems:'center',gap:8 }}>
+                        <div style={{ width:9,height:9,borderRadius:'50%',border:'2px solid rgba(255,202,40,0.3)',borderTopColor:C.yellow,animation:'spin 0.7s linear infinite' }} />
+                        Running...
+                      </div>
+                    )}
+                    <div ref={termEndRef} />
+                  </div>
+
+                  {/* Prompt input row */}
+                  <div style={{ borderTop:'1px solid #1a1a2e',padding:'6px 10px',display:'flex',alignItems:'center',gap:6,flexShrink:0,background:'#0a0a0f' }}>
+                    <span style={{ color:C.green,fontFamily:'monospace',fontSize:12,userSelect:'none',flexShrink:0 }}>devspace</span>
+                    <span style={{ color:C.accent,fontFamily:'monospace',fontSize:12,userSelect:'none',flexShrink:0 }}>:~$</span>
+                    <input
+                      ref={termInputRef}
+                      value={termInput}
+                      onChange={e=>setTermInput(e.target.value)}
+                      onKeyDown={handleTermSubmit}
+                      placeholder="node -v  |  npm install vite  |  python3 --version ..."
+                      style={{ flex:1,background:'transparent',border:'none',outline:'none',color:'#e2e2f0',fontFamily:"'JetBrains Mono',monospace",fontSize:12,caretColor:C.accent }}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  {/* Bottom action bar */}
+                  <div style={{ padding:'5px 8px',borderTop:'1px solid #1a1a2e',display:'flex',gap:6,flexShrink:0 }}>
+                    <button onClick={handleRunCode} style={{ flex:1,padding:'6px',borderRadius:6,background:`${C.green}12`,border:`1px solid ${C.green}30`,color:C.green,cursor:'pointer',fontFamily:'inherit',fontSize:11,fontWeight:700 }}>▶ Run {language}</button>
+                    <button onClick={()=>{ setTermLines([{ text:'Terminal cleared.', type:'muted' }]); dispatch(clearExecutionOutput()) }} style={{ padding:'6px 10px',borderRadius:6,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,cursor:'pointer',fontFamily:'inherit',fontSize:11 }}>Clear</button>
+                    {['html','tailwind'].includes(language) && (
+                      <button onClick={()=>setShowPreview(true)} style={{ padding:'6px 10px',borderRadius:6,background:`${C.blue}12`,border:`1px solid ${C.blue}30`,color:C.blue,cursor:'pointer',fontFamily:'inherit',fontSize:11 }}>🌐 Preview</button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -649,15 +877,47 @@ export default function WorkspacePage() {
             </div>
           )}
 
-          {/* Whiteboard */}
+          {/* Whiteboard — infinite canvas */}
           {activePanel==='whiteboard' && (
             <div style={{ flex:1,display:'flex',flexDirection:'column',overflow:'hidden' }}>
-              <div style={{ padding:'6px 10px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:5,alignItems:'center',flexWrap:'wrap' }}>
-                {['pen','eraser'].map(m=><button key={m} onClick={()=>setWbMode(m)} style={{ ...S.btn(wbMode===m),fontSize:10 }}>{m==='pen'?'✏️':'🧹'} {m}</button>)}
-                {['#7c6af7','#3dffa0','#ff5370','#ffca28','#89ddff','#ff7eb3','#fff'].map(c=><button key={c} onClick={()=>{setWbMode('pen');setWbColor(c)}} style={{ width:18,height:18,borderRadius:'50%',background:c,border:wbColor===c?'2px solid #fff':'2px solid transparent',cursor:'pointer' }}/>)}
-                <button onClick={clearCanvas} style={{ ...S.btn(false),marginLeft:'auto',color:C.red,borderColor:'rgba(255,83,112,0.3)',fontSize:10 }}>🗑</button>
+              {/* Toolbar */}
+              <div style={{ padding:'5px 8px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:5,alignItems:'center',flexWrap:'wrap',flexShrink:0 }}>
+                {/* Tools */}
+                <button onClick={()=>setWbMode('pen')}  style={{ ...S.btn(wbMode==='pen'), fontSize:10, padding:'3px 8px' }}>✏️ pen</button>
+                <button onClick={()=>setWbMode('eraser')} style={{ ...S.btn(wbMode==='eraser'), fontSize:10, padding:'3px 8px' }}>🧹 eraser</button>
+                <div style={{ width:1,height:16,background:C.border,margin:'0 2px' }}/>
+                {/* Colors */}
+                {['#7c6af7','#3dffa0','#ff5370','#ffca28','#89ddff','#ff7eb3','#fff'].map(c=>(
+                  <button key={c} onClick={()=>{setWbMode('pen');setWbColor(c)}}
+                    style={{ width:16,height:16,borderRadius:'50%',background:c,border:wbColor===c&&wbMode==='pen'?'2px solid #fff':'2px solid transparent',cursor:'pointer',flexShrink:0 }}/>
+                ))}
+                <div style={{ width:1,height:16,background:C.border,margin:'0 2px' }}/>
+                {/* Brush size */}
+                <span style={{ fontSize:9,color:C.muted,fontWeight:700 }}>SIZE</span>
+                <input type="range" min={1} max={30} value={wbSize} onChange={e=>setWbSize(+e.target.value)}
+                  style={{ width:60,cursor:'pointer',accentColor:C.accent }} />
+                <span style={{ fontSize:10,color:C.muted,minWidth:16 }}>{wbSize}</span>
+                <div style={{ width:1,height:16,background:C.border,margin:'0 2px' }}/>
+                {/* Zoom */}
+                <button onClick={()=>setWbScale(s=>Math.min(5,+(s*1.2).toFixed(2)))} style={{ ...S.btn(false),fontSize:10,padding:'2px 6px' }}>＋</button>
+                <span style={{ fontSize:9,color:C.muted,minWidth:28,textAlign:'center' }}>{Math.round(wbScale*100)}%</span>
+                <button onClick={()=>setWbScale(s=>Math.max(0.2,+(s/1.2).toFixed(2)))} style={{ ...S.btn(false),fontSize:10,padding:'2px 6px' }}>－</button>
+                <button onClick={()=>{setWbScale(1);setWbOffset({x:0,y:0})}} style={{ ...S.btn(false),fontSize:9,padding:'2px 6px' }}>↺</button>
+                {/* Undo + Clear */}
+                <button onClick={undoCanvas} style={{ ...S.btn(false),fontSize:10,padding:'2px 6px',marginLeft:'auto' }}>↩ undo</button>
+                <button onClick={clearCanvas} style={{ ...S.btn(false),fontSize:10,padding:'2px 6px',color:C.red,borderColor:'rgba(255,83,112,0.3)' }}>🗑</button>
               </div>
-              <canvas ref={canvasRef} width={400} height={800} style={{ flex:1,cursor:wbMode==='eraser'?'cell':'crosshair',background:C.surface,display:'block' }} onMouseDown={startDraw} onMouseMove={doDraw} onMouseUp={stopDraw} onMouseLeave={stopDraw} />
+              {/* Canvas — fills remaining space, resize-safe */}
+              <div ref={wbContainerRef} style={{ flex:1,position:'relative',overflow:'hidden',background:'#0d0d14' }}>
+                <canvas ref={canvasRef}
+                  style={{ position:'absolute',top:0,left:0,cursor:wbMode==='eraser'?'cell':panning.current?'grabbing':'crosshair',touchAction:'none' }}
+                  onMouseDown={startDraw} onMouseMove={doDraw} onMouseUp={stopDraw} onMouseLeave={stopDraw}
+                  onWheel={onWbWheel}
+                />
+                <div style={{ position:'absolute',bottom:6,right:8,fontSize:10,color:'#3a3a55',pointerEvents:'none',userSelect:'none' }}>
+                  Alt+drag to pan · scroll to zoom
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -734,3 +994,4 @@ export default function WorkspacePage() {
     </div>
   )
 }
+// file manager: folder tree, create/rename/delete, context menus

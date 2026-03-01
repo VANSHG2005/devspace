@@ -17,6 +17,17 @@ const DEFAULT_FILE = {
   python:     { name: 'main.py',   content: '# Start coding here\n\nprint("Hello from DevSpace!")\n' },
   go:         { name: 'main.go',   content: 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello from DevSpace!")\n}\n' },
   rust:       { name: 'main.rs',   content: 'fn main() {\n    println!("Hello from DevSpace!");\n}\n' },
+  java:       { name: 'Main.java', content: 'public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello from DevSpace!");\n    }\n}\n' },
+  cpp:        { name: 'main.cpp',  content: '#include <iostream>\n\nint main() {\n    std::cout << "Hello from DevSpace!" << std::endl;\n    return 0;\n}\n' },
+  html:       { name: 'index.html', content: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n  <title>DevSpace App</title>\n</head>\n<body>\n  <h1>Hello from DevSpace!</h1>\n</body>\n</html>\n' },
+  react:      { name: 'App.jsx',   content: 'import React, { useState } from \'react\'\n\nexport default function App() {\n  const [count, setCount] = useState(0)\n\n  return (\n    <div style={{ fontFamily: \'sans-serif\', textAlign: \'center\', padding: 40 }}>\n      <h1>Hello from DevSpace ⚛️</h1>\n      <p>Count: {count}</p>\n      <button onClick={() => setCount(c => c + 1)}>Click me</button>\n    </div>\n  )\n}\n' },
+  'react-ts': { name: 'App.tsx',   content: 'import React, { useState } from \'react\'\n\ninterface Props {}\n\nconst App: React.FC<Props> = () => {\n  const [count, setCount] = useState<number>(0)\n\n  return (\n    <div style={{ fontFamily: \'sans-serif\', textAlign: \'center\', padding: 40 }}>\n      <h1>Hello from DevSpace ⚛️</h1>\n      <p>Count: {count}</p>\n      <button onClick={() => setCount(c => c + 1)}>Click me</button>\n    </div>\n  )\n}\n\nexport default App\n' },
+  nextjs:     { name: 'page.tsx',  content: 'export default function Page() {\n  return (\n    <main style={{ padding: 40, fontFamily: \'sans-serif\' }}>\n      <h1>Hello from DevSpace ▲</h1>\n      <p>Next.js 14 App Router</p>\n    </main>\n  )\n}\n' },
+  tailwind:   { name: 'index.html', content: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n  <title>DevSpace — Tailwind</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-950 text-white min-h-screen flex items-center justify-center">\n  <div class="text-center">\n    <h1 class="text-4xl font-bold text-purple-400 mb-4">Hello from DevSpace 💨</h1>\n    <p class="text-gray-400">Tailwind CSS is ready to go!</p>\n  </div>\n</body>\n</html>\n' },
+  nodejs:     { name: 'index.js',  content: 'const http = require(\'http\')\n\nconst server = http.createServer((req, res) => {\n  res.writeHead(200, { \'Content-Type\': \'text/plain\' })\n  res.end(\'Hello from DevSpace Node.js server!\\n\')\n})\n\nserver.listen(3000, () => {\n  console.log(\'Server running at http://localhost:3000/\')\n})\n' },
+  express:    { name: 'index.js',  content: 'const express = require(\'express\')\nconst app = express()\nconst PORT = process.env.PORT || 3000\n\napp.use(express.json())\n\napp.get(\'/\', (req, res) => {\n  res.json({ message: \'Hello from DevSpace Express! 🚂\' })\n})\n\napp.get(\'/health\', (req, res) => {\n  res.json({ status: \'ok\', timestamp: new Date().toISOString() })\n})\n\napp.listen(PORT, () => console.log(`Server running on port ${PORT}`))\n' },
+  vue:        { name: 'App.vue',   content: '<template>\n  <div style="font-family: sans-serif; text-align: center; padding: 40px">\n    <h1>Hello from DevSpace 💚</h1>\n    <p>Count: {{ count }}</p>\n    <button @click="count++">Click me</button>\n  </div>\n</template>\n\n<script setup>\nimport { ref } from \'vue\'\nconst count = ref(0)\n</script>\n' },
+  svelte:     { name: 'App.svelte', content: '<script>\n  let count = 0\n</script>\n\n<main style="font-family: sans-serif; text-align: center; padding: 40px">\n  <h1>Hello from DevSpace 🧡</h1>\n  <p>Count: {count}</p>\n  <button on:click={() => count++}>Click me</button>\n</main>\n' },
 };
 
 /* ── Create workspace ─────────────────────────────────────────────────────── */
@@ -299,3 +310,4 @@ export const getWorkspaceInfo = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
+// rename + getWorkspaceInfo endpoints added

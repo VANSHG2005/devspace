@@ -21,6 +21,8 @@ export const EVENTS = {
   FILE_CREATED:    'FILE_CREATED',
   FILE_DELETED:    'FILE_DELETED',
   WEBRTC_SIGNAL:   'WEBRTC_SIGNAL',
+  TERMINAL_INPUT:  'TERMINAL_INPUT',
+  TERMINAL_OUTPUT: 'TERMINAL_OUTPUT',
 }
 
 // Track recent disconnects to suppress left/joined on page reload
@@ -185,6 +187,51 @@ export const registerSocketHandlers = (io, redisClient) => {
       }
     })
 
+    // ── TERMINAL (writable shell per workspace) ─────────────────────────────
+    socket.on(EVENTS.TERMINAL_INPUT, async ({ roomId, cmd }) => {
+      if (!cmd?.trim()) return
+      const trimmed = cmd.trim()
+
+      // Security: block dangerous commands
+      const BLOCKED = [/rm\s+-rf\s+\//, /mkfs/, /dd\s+if=/, /:\(\)\{/, /fork\s*bomb/, />\s*\/dev\/sd/]
+      if (BLOCKED.some(r => r.test(trimmed))) {
+        socket.emit(EVENTS.TERMINAL_OUTPUT, { line: '⛔ Command blocked for safety.', type: 'error' })
+        return
+      }
+
+      // Echo the command
+      socket.emit(EVENTS.TERMINAL_OUTPUT, { line: `$ ${trimmed}`, type: 'cmd' })
+
+      const { exec } = await import('child_process')
+      const { promisify } = await import('util')
+      const execAsync = promisify(exec)
+
+      try {
+        const { stdout, stderr } = await execAsync(trimmed, {
+          timeout: 30000,
+          maxBuffer: 512 * 1024,
+          shell: '/bin/bash',
+          env: { ...process.env, HOME: '/tmp', PATH: process.env.PATH },
+          cwd: '/tmp',
+        })
+        if (stdout?.trim()) stdout.trim().split('\n').forEach(line =>
+          socket.emit(EVENTS.TERMINAL_OUTPUT, { line, type: 'result' })
+        )
+        if (stderr?.trim()) stderr.trim().split('\n').forEach(line =>
+          socket.emit(EVENTS.TERMINAL_OUTPUT, { line, type: 'warn' })
+        )
+        if (!stdout?.trim() && !stderr?.trim()) {
+          socket.emit(EVENTS.TERMINAL_OUTPUT, { line: '(done)', type: 'muted' })
+        }
+      } catch (err) {
+        const msg = err.killed ? '⏱ Command timed out (30s limit)'
+          : (err.stderr?.trim() || err.stdout?.trim() || err.message)
+        msg.split('\n').forEach(line =>
+          socket.emit(EVENTS.TERMINAL_OUTPUT, { line, type: 'error' })
+        )
+      }
+    })
+
     // ── FILE events ─────────────────────────────────────────────────────────
     socket.on(EVENTS.FILE_CREATED, ({ roomId, file }) => socket.to(roomId).emit(EVENTS.FILE_CREATED, file))
     socket.on(EVENTS.FILE_DELETED, ({ roomId, fileId }) => socket.to(roomId).emit(EVENTS.FILE_DELETED, { fileId }))
@@ -233,3 +280,6 @@ export const registerSocketHandlers = (io, redisClient) => {
     }
   }, 30000)
 }
+// Already handled — WEBRTC_SIGNAL relay passes fromName now
+
+// v2: presence tracking + cursor broadcast added Jan 21

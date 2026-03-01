@@ -44,6 +44,10 @@ export const emitWhiteboardClear = (roomId) => {
   socket?.emit('WHITEBOARD_CLEAR', { roomId })
 }
 
+export const emitTerminalInput = (roomId, cmd) => {
+  socket?.emit('TERMINAL_INPUT', { roomId, cmd })
+}
+
 export const EVENTS = {
   JOIN_ROOM:       'JOIN_ROOM',
   LEAVE_ROOM:      'LEAVE_ROOM',
@@ -63,4 +67,6 @@ export const EVENTS = {
   FILE_CREATED:    'FILE_CREATED',
   FILE_DELETED:    'FILE_DELETED',
   WEBRTC_SIGNAL:   'WEBRTC_SIGNAL',
+  TERMINAL_INPUT:  'TERMINAL_INPUT',
+  TERMINAL_OUTPUT: 'TERMINAL_OUTPUT',
 }
