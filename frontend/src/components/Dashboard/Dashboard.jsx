@@ -434,12 +434,14 @@ export default function Dashboard() {
         )}
 
         {/* Join bar */}
-        <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'13px 18px',marginBottom:32,display:'flex',alignItems:'center',gap:12 }}>
-          <span style={{fontSize:15}}>🔗</span>
-          <span style={{ fontSize:13,fontWeight:600,color:C.muted,whiteSpace:'nowrap' }}>Join Workspace</span>
+        <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'13px 18px',marginBottom:32,display:'flex',flexDirection: isMobile ? 'column' : 'row',alignItems: isMobile ? 'stretch' : 'center',gap: isMobile ? 8 : 12 }}>
+          <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+            <span style={{fontSize:15}}>🔗</span>
+            <span style={{ fontSize:13,fontWeight:600,color:C.muted,whiteSpace:'nowrap' }}>Join Workspace</span>
+          </div>
           <input value={joinId} onChange={e=>setJoinId(e.target.value)} placeholder="Paste workspace ID" onKeyDown={e=>e.key==='Enter'&&joinId&&navigate(`/workspace/${joinId.trim()}`)}
-            style={{ flex:1,padding:'8px 12px',background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:13,fontFamily:'monospace',outline:'none' }} />
-          <button onClick={()=>joinId&&navigate(`/workspace/${joinId.trim()}`)} style={{ padding:'8px 18px',borderRadius:8,background:`${C.accent}20`,border:`1px solid ${C.accent}40`,color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap' }}>Join →</button>
+            style={{ flex:1,padding:'8px 12px',background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:13,fontFamily:'monospace',outline:'none',minWidth:0 }} />
+          <button onClick={()=>joinId&&navigate(`/workspace/${joinId.trim()}`)} style={{ padding:'9px 18px',borderRadius:8,background:`${C.accent}20`,border:`1px solid ${C.accent}40`,color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap' }}>Join →</button>
         </div>
 
         <h2 style={{ fontSize:17,fontWeight:700,marginBottom:18 }}>Your Workspaces</h2>
