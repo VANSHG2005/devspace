@@ -1,0 +1,102 @@
+# =========================
+# GENERAL
+# =========================
+.DS_Store
+Thumbs.db
+*.log
+logs/
+*.tmp
+*.temp
+
+# =========================
+# ENV FILES (IMPORTANT)
+# =========================
+.env
+.env.*
+!.env.example
+.env.local
+
+# =========================
+# NODE MODULES
+# =========================
+node_modules/
+**/node_modules/
+
+# =========================
+# BUILD FILES
+# =========================
+
+# React / Vite
+frontend/dist/
+frontend/build/
+frontend/.vite/
+
+# Backend build
+backend/dist/
+backend/build/
+
+# =========================
+# CACHE
+# =========================
+.cache/
+.parcel-cache/
+.npm/
+.eslintcache
+
+# =========================
+# TEST
+# =========================
+coverage/
+*.lcov
+
+# =========================
+# IDE
+# =========================
+
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# DOCKER
+# =========================
+docker-data/
+*.pid
+
+# =========================
+# DATABASE
+# =========================
+backend/database/*.sqlite
+backend/database/*.db
+backend/database/*.sqlite3
+
+# =========================
+# LOG FILES
+# =========================
+backend/logs/
+frontend/logs/
+
+# =========================
+# MISC
+# =========================
+*.pem
+*.key
+*.crt
+
+# =========================
+# PACKAGE LOCK (optional)
+# =========================
+# Uncomment if you don't want lock files
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml

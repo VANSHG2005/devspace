@@ -166,4 +166,3 @@ function Fld({label,required,hint,children}){
     </div>
   )
 }
-// profile page: avatar, bio, address, cursor color picker

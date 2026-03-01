@@ -24,98 +24,8 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' })
 }
 
-// ── Share Modal ───────────────────────────────────────────────────────────────
-function ShareModal({ ws, onClose }) {
-  const link = `${window.location.origin}/workspace/${ws.id}`
-  const [copied, setCopied] = useState(false)
-
-  const copy = () => {
-    navigator.clipboard.writeText(link)
-    setCopied(true); toast.success('Link copied!'); setTimeout(() => setCopied(false), 2500)
-  }
-
-  const shareOptions = [
-    {
-      label: 'WhatsApp', color: '#25D366', bg: 'rgba(37,211,102,0.1)',
-      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.658 1.438 5.168L2 22l4.99-1.418A9.955 9.955 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/></svg>,
-      action: () => window.open(`https://wa.me/?text=${encodeURIComponent(`Join my DevSpace workspace "${ws.name}":
-${link}`)}`, '_blank'),
-    },
-    {
-      label: 'Email', color: '#82aaff', bg: 'rgba(130,170,255,0.1)',
-      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#82aaff" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>,
-      action: () => window.open(`mailto:?subject=${encodeURIComponent(`Join "${ws.name}" on DevSpace`)}&body=${encodeURIComponent(`Hey! I'd like to collaborate with you on DevSpace.
-
-Workspace: ${ws.name}
-Join here: ${link}`)}`, '_blank'),
-    },
-    {
-      label: 'Telegram', color: '#29b6f6', bg: 'rgba(41,182,246,0.1)',
-      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="#29b6f6"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>,
-      action: () => window.open(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(`Join "${ws.name}" on DevSpace`)}`, '_blank'),
-    },
-    {
-      label: 'Twitter / X', color: '#e2e2f0', bg: 'rgba(226,226,240,0.08)',
-      icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="#e2e2f0"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>,
-      action: () => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Collaborating on "${ws.name}" using DevSpace - real-time code editor!`)}&url=${encodeURIComponent(link)}`, '_blank'),
-    },
-  ]
-
-  // Use native share sheet if available (mobile / some browsers)
-  const nativeShare = () => {
-    if (navigator.share) {
-      navigator.share({ title: `DevSpace — ${ws.name}`, text: `Join my workspace "${ws.name}" on DevSpace`, url: link })
-        .then(onClose).catch(() => {})
-    }
-  }
-
-  return (
-    <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center' }} onClick={onClose}>
-      <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:28,width:420,boxShadow:'0 24px 80px rgba(0,0,0,0.7)' }} onClick={e=>e.stopPropagation()}>
-        {/* Header */}
-        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22 }}>
-          <div>
-            <h3 style={{ fontSize:17,fontWeight:800,marginBottom:3 }}>📤 Share Workspace</h3>
-            <p style={{ fontSize:12,color:C.muted }}>{ws.name}</p>
-          </div>
-          <button onClick={onClose} style={{ background:`${C.border}80`,border:'none',color:C.muted,cursor:'pointer',width:30,height:30,borderRadius:7,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center' }}>✕</button>
-        </div>
-
-        {/* Link copy bar */}
-        <div style={{ display:'flex',gap:8,marginBottom:22,padding:'10px 14px',background:C.alt,borderRadius:10,border:`1px solid ${C.border}` }}>
-          <span style={{ flex:1,fontSize:11,color:C.muted,fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',alignSelf:'center' }}>{link}</span>
-          <button onClick={copy} style={{ padding:'6px 14px',borderRadius:7,background:copied?`${C.green}15`:C.accent,border:'none',color:copied?C.green:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit',flexShrink:0,transition:'all .2s' }}>
-            {copied ? '✓ Copied!' : 'Copy'}
-          </button>
-        </div>
-
-        {/* Share options grid */}
-        <p style={{ fontSize:11,fontWeight:700,color:C.muted,textTransform:'uppercase',letterSpacing:'0.6px',marginBottom:12 }}>Share via</p>
-        <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom: navigator.share ? 16 : 0 }}>
-          {shareOptions.map(opt => (
-            <button key={opt.label} onClick={opt.action}
-              style={{ display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderRadius:10,background:opt.bg,border:`1px solid ${opt.color}30`,cursor:'pointer',fontFamily:'inherit',transition:'all .15s' }}
-              onMouseEnter={e=>{e.currentTarget.style.background=opt.bg.replace('0.1','0.18');e.currentTarget.style.borderColor=opt.color+'60'}}
-              onMouseLeave={e=>{e.currentTarget.style.background=opt.bg;e.currentTarget.style.borderColor=opt.color+'30'}}>
-              {opt.icon}
-              <span style={{ fontSize:13,fontWeight:600,color:C.text }}>{opt.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Native share button (shows on mobile/supported browsers) */}
-        {typeof navigator !== 'undefined' && navigator.share && (
-          <button onClick={nativeShare} style={{ width:'100%',marginTop:10,padding:'11px',borderRadius:9,background:`${C.accent}15`,border:`1px solid ${C.accent}35`,color:C.accent,fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:8 }}>
-            📱 Share via Device
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── Workspace 3-dot context menu ──────────────────────────────────────────────
-function WsMenu({ ws, onClose, onRename, onDelete, onInfo, onShare }) {
+function WsMenu({ ws, onClose, onRename, onDelete, onInfo }) {
   const menuRef = useRef(null)
   const navigate = useNavigate()
   const [copied, setCopied] = useState(false)
@@ -137,7 +47,7 @@ function WsMenu({ ws, onClose, onRename, onDelete, onInfo, onShare }) {
     { icon:'✏️', label:'Rename', action: (e) => { e.stopPropagation(); onRename(ws); onClose() } },
     { divider: true },
     { icon: copied ? '✓' : '🔗', label: copied ? 'Copied!' : 'Copy Link', action: copyLink },
-    { icon:'📤', label:'Share', action: (e) => { e.stopPropagation(); onShare(ws); onClose() } },
+    { icon:'📤', label:'Share', action: (e) => { e.stopPropagation(); copyLink(e) } },
     { divider: true },
     { icon:'ℹ️', label:'Info', action: (e) => { e.stopPropagation(); onInfo(ws); onClose() } },
     { divider: true },
@@ -275,7 +185,6 @@ export default function Dashboard() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [openMenuWsId, setOpenMenuWsId] = useState(null)
   const [showInfoWs, setShowInfoWs] = useState(null)
-  const [showShareWs, setShowShareWs] = useState(null)
   const [renameWs, setRenameWs] = useState(null)
   const [localWorkspaces, setLocalWorkspaces] = useState([])
 
@@ -455,7 +364,7 @@ export default function Dashboard() {
                       onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.style.color=C.muted}}
                       title="Options">⋯</button>
                     {openMenuWsId === ws.id && (
-                      <WsMenu ws={ws} onClose={()=>setOpenMenuWsId(null)} onRename={setRenameWs} onDelete={id=>{setOpenMenuWsId(null);setDeleteConfirm(id)}} onInfo={setShowInfoWs} onShare={setShowShareWs} />
+                      <WsMenu ws={ws} onClose={()=>setOpenMenuWsId(null)} onRename={setRenameWs} onDelete={id=>{setOpenMenuWsId(null);setDeleteConfirm(id)}} onInfo={setShowInfoWs} />
                     )}
                   </div>
 
@@ -495,9 +404,7 @@ export default function Dashboard() {
       )}
 
       {showInfoWs && <WsInfoModal ws={showInfoWs} onClose={()=>setShowInfoWs(null)} />}
-      {showShareWs && <ShareModal ws={showShareWs} onClose={()=>setShowShareWs(null)} />}
       {renameWs && <RenameModal ws={renameWs} onClose={()=>setRenameWs(null)} onRenamed={handleRenamed} />}
     </div>
   )
 }
-// share modal: WhatsApp, email, Telegram, Twitter, copy link, native share

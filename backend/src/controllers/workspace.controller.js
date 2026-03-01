@@ -299,4 +299,3 @@ export const getWorkspaceInfo = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
-// rename + getWorkspaceInfo endpoints added

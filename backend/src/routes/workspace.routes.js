@@ -25,4 +25,3 @@ router.post('/:id/invite', [body('email').isEmail().normalizeEmail()], validate,
 router.get('/:id/analytics', getAnalytics);
 
 export default router;
-// routes: PATCH /:id/rename, GET /:id/info
