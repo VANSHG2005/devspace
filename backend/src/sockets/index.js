@@ -23,12 +23,19 @@ export const EVENTS = {
   WEBRTC_SIGNAL:   'WEBRTC_SIGNAL',
   TERMINAL_INPUT:  'TERMINAL_INPUT',
   TERMINAL_OUTPUT: 'TERMINAL_OUTPUT',
+  BOARD_STROKE:    'BOARD_STROKE',
+  BOARD_CLEAR:     'BOARD_CLEAR',
+  BOARD_SYNC:      'BOARD_SYNC',
+  BOARD_REQUEST:   'BOARD_REQUEST',
 }
 
 // Track recent disconnects to suppress left/joined on page reload
 // { userId_roomId: timestamp }
 const recentDisconnects = new Map()
 const RECONNECT_GRACE_MS = 4000 // 4 seconds — if user rejoins within this, don't show left/joined
+
+// In-memory board state per room (shared whiteboard)
+const boardStrokes = new Map()
 
 export const registerSocketHandlers = (io, redisClient) => {
 
@@ -230,6 +237,29 @@ export const registerSocketHandlers = (io, redisClient) => {
           socket.emit(EVENTS.TERMINAL_OUTPUT, { line, type: 'error' })
         )
       }
+    })
+
+    // ── BOARD sync ──────────────────────────────────────────────────────────
+    // Store strokes in memory per room (cleared on server restart)
+    socket.on(EVENTS.BOARD_STROKE, ({ roomId, stroke }) => {
+      if (!roomId || !stroke) return
+      // Cache strokes per room
+      if (!boardStrokes.has(roomId)) boardStrokes.set(roomId, [])
+      boardStrokes.get(roomId).push(stroke)
+      // Broadcast to all others in room
+      socket.to(roomId).emit(EVENTS.BOARD_STROKE, { stroke })
+    })
+
+    socket.on(EVENTS.BOARD_CLEAR, ({ roomId }) => {
+      if (!roomId) return
+      boardStrokes.set(roomId, [])
+      socket.to(roomId).emit(EVENTS.BOARD_CLEAR)
+    })
+
+    // New user joins and requests current board state
+    socket.on(EVENTS.BOARD_REQUEST, ({ roomId }) => {
+      const strokes = boardStrokes.get(roomId) || []
+      socket.emit(EVENTS.BOARD_SYNC, { strokes })
     })
 
     // ── FILE events ─────────────────────────────────────────────────────────

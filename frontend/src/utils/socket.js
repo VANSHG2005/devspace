@@ -44,6 +44,16 @@ export const emitWhiteboardClear = (roomId) => {
   socket?.emit('WHITEBOARD_CLEAR', { roomId })
 }
 
+export const emitBoardStroke = (roomId, stroke) => {
+  socket?.emit('BOARD_STROKE', { roomId, stroke })
+}
+export const emitBoardClear = (roomId) => {
+  socket?.emit('BOARD_CLEAR', { roomId })
+}
+export const emitBoardRequest = (roomId) => {
+  socket?.emit('BOARD_REQUEST', { roomId })
+}
+
 export const emitTerminalInput = (roomId, cmd) => {
   socket?.emit('TERMINAL_INPUT', { roomId, cmd })
 }
@@ -67,6 +77,10 @@ export const EVENTS = {
   FILE_CREATED:    'FILE_CREATED',
   FILE_DELETED:    'FILE_DELETED',
   WEBRTC_SIGNAL:   'WEBRTC_SIGNAL',
-  TERMINAL_INPUT:  'TERMINAL_INPUT',
-  TERMINAL_OUTPUT: 'TERMINAL_OUTPUT',
+  TERMINAL_INPUT:   'TERMINAL_INPUT',
+  TERMINAL_OUTPUT:  'TERMINAL_OUTPUT',
+  BOARD_STROKE:     'BOARD_STROKE',
+  BOARD_CLEAR:      'BOARD_CLEAR',
+  BOARD_SYNC:       'BOARD_SYNC',
+  BOARD_REQUEST:    'BOARD_REQUEST',
 }

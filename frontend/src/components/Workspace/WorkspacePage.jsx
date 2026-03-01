@@ -12,6 +12,7 @@ import { emitCodeChange, emitCursorMove, emitSendMessage, emitTypingStart, emitT
 import { toast } from 'react-toastify'
 import api from '../../utils/api'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { emitBoardStroke, emitBoardClear, emitBoardRequest, getSocket, EVENTS } from '../../utils/socket'
 
 // ── File type icon ────────────────────────────────────────────────────────────
 function FileIcon({ ext }) {
@@ -315,6 +316,7 @@ export default function WorkspacePage() {
   const isMobile = useIsMobile()
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false)
+  const [wbFullscreen, setWbFullscreen] = useState(false)
   const [termInput, setTermInput] = useState('')
   const [termLines, setTermLines] = useState([{ text: 'DevSpace Terminal — type commands below', type: 'info' }])
   const [termHistory, setTermHistory] = useState([])
@@ -344,6 +346,43 @@ export default function WorkspacePage() {
     }
     socket.on(EVENTS.TERMINAL_OUTPUT, handler)
     return () => socket.off(EVENTS.TERMINAL_OUTPUT, handler)
+  }, [workspaceId])
+
+  // ── Board socket sync ────────────────────────────────────────────────────
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    // Someone drew a new stroke
+    const onStroke = ({ stroke }) => {
+      if (!stroke) return
+      strokesRef.current.push(stroke)
+      redrawCanvas()
+    }
+    // Someone cleared the board
+    const onClear = () => {
+      strokesRef.current = []
+      redrawCanvas()
+    }
+    // Server sends full board state on join
+    const onSync = ({ strokes }) => {
+      if (!strokes?.length) return
+      strokesRef.current = strokes
+      redrawCanvas()
+    }
+
+    socket.on(EVENTS.BOARD_STROKE, onStroke)
+    socket.on(EVENTS.BOARD_CLEAR,  onClear)
+    socket.on(EVENTS.BOARD_SYNC,   onSync)
+
+    // Request current board state when joining
+    emitBoardRequest(workspaceId)
+
+    return () => {
+      socket.off(EVENTS.BOARD_STROKE, onStroke)
+      socket.off(EVENTS.BOARD_CLEAR,  onClear)
+      socket.off(EVENTS.BOARD_SYNC,   onSync)
+    }
   }, [workspaceId])
 
   useEffect(() => {
@@ -572,11 +611,18 @@ export default function WorkspacePage() {
     if(!drawing.current) return
     drawing.current=false
     if(currentStroke.current.length>1){
-      strokesRef.current.push({ points:[...currentStroke.current], color:wbColor, size:wbSize, eraser:wbMode==='eraser' })
+      const stroke = { points:[...currentStroke.current], color:wbColor, size:wbSize, eraser:wbMode==='eraser' }
+      strokesRef.current.push(stroke)
+      // Broadcast to other users
+      emitBoardStroke(workspaceId, stroke)
     }
     currentStroke.current=[]
   }
-  const clearCanvas=()=>{ strokesRef.current=[]; redrawCanvas() }
+  const clearCanvas=()=>{
+    strokesRef.current=[]
+    redrawCanvas()
+    emitBoardClear(workspaceId)
+  }
   const undoCanvas=()=>{ strokesRef.current.pop(); redrawCanvas() }
 
   // Zoom with scroll wheel
@@ -654,9 +700,9 @@ export default function WorkspacePage() {
 
       {/* Body */}
       <div ref={bodyRef} style={{ flex:1,display:'flex',overflow:'hidden',position:'relative' }}>
-        {/* Mobile overlay backdrop */}
-        {isMobile && (mobileSidebarOpen || mobilePanelOpen) && (
-          <div onClick={()=>{setMobileSidebarOpen(false);setMobilePanelOpen(false)}}
+        {/* Mobile overlay backdrop — only for sidebar drawer */}
+        {isMobile && mobileSidebarOpen && (
+          <div onClick={()=>setMobileSidebarOpen(false)}
             style={{ position:'absolute',inset:0,background:'rgba(0,0,0,0.6)',zIndex:30 }} />
         )}
 
@@ -754,25 +800,39 @@ export default function WorkspacePage() {
           )}
         </div>
 
-        <DragHandle onDrag={handleRightDrag} />
+        {!isMobile && <DragHandle onDrag={handleRightDrag} />}
 
-        {/* Right panel */}
+        {/* Right panel — desktop: sidebar, mobile: full-screen modal */}
+        {(!isMobile || mobilePanelOpen) && (
         <div style={{
-          width: isMobile ? '100%' : rightW,
-          borderLeft:`1px solid ${C.border}`,
+          width: isMobile ? '100vw' : rightW,
+          borderLeft: isMobile ? 'none' : `1px solid ${C.border}`,
           display:'flex',flexDirection:'column',flexShrink:0,
           ...(isMobile ? {
-            position:'absolute', top:0, right:0, bottom:0, zIndex:40,
-            transform: mobilePanelOpen ? 'translateX(0)' : 'translateX(100%)',
-            transition:'transform 0.25s ease',
-            boxShadow: mobilePanelOpen ? '-4px 0 24px rgba(0,0,0,0.5)' : 'none',
+            position:'fixed', inset:0, zIndex:60,
+            background:C.bg,
           } : {}),
         }}>
+          {/* Tab bar — desktop only (mobile uses bottom nav) */}
+          {!isMobile && (
           <div style={{ display:'flex',borderBottom:`1px solid ${C.border}`,background:C.surface }}>
             {[{id:'chat',e:'💬',l:'Chat'},{id:'terminal',e:'⌨️',l:'Term'},{id:'ai',e:'✨',l:'AI'},{id:'whiteboard',e:'🎨',l:'Board'}].map(p=>(
-              <button key={p.id} style={S.tab(p.id)} onClick={()=>{dispatch(setActivePanel(p.id));if(isMobile)setMobilePanelOpen(true)}}><span>{p.e}</span><span>{p.l}</span></button>
+              <button key={p.id} style={S.tab(p.id)} onClick={()=>dispatch(setActivePanel(p.id))}><span>{p.e}</span><span>{p.l}</span></button>
             ))}
           </div>
+          )}
+          {/* Mobile header bar with title + close */}
+          {isMobile && (
+          <div style={{ height:48,display:'flex',alignItems:'center',padding:'0 14px',borderBottom:`1px solid ${C.border}`,background:C.surface,flexShrink:0 }}>
+            <span style={{ fontWeight:700,fontSize:14 }}>
+              {activePanel==='chat'?'💬 Chat':activePanel==='terminal'?'⌨️ Terminal':activePanel==='ai'?'✨ AI Assistant':'🎨 Whiteboard'}
+            </span>
+            <button onClick={()=>setMobilePanelOpen(false)}
+              style={{ marginLeft:'auto',width:32,height:32,borderRadius:8,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,cursor:'pointer',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center' }}>
+              ✕
+            </button>
+          </div>
+          )}
 
           {/* Chat */}
           {activePanel==='chat' && (
@@ -912,77 +972,97 @@ export default function WorkspacePage() {
                 {aiMessages.map((msg,i)=><div key={i} style={{ background:msg.role==='user'?`${C.accent}12`:'#16161f',border:`1px solid ${msg.role==='user'?`${C.accent}30`:C.border}`,padding:'10px',borderRadius:9,fontSize:12,lineHeight:1.6,whiteSpace:'pre-wrap',wordBreak:'break-word' }}><div style={{ fontSize:10,color:msg.role==='assistant'?C.accent:C.muted,fontWeight:700,marginBottom:4 }}>{msg.role==='assistant'?'✦ AI':'You'}</div>{msg.text}</div>)}
                 {aiLoading && <div style={{ background:'#16161f',border:`1px solid ${C.border}`,padding:'10px',borderRadius:9,color:C.accent,fontSize:12 }}>Thinking...</div>}
               </div>
-              <div style={{ padding:'8px 10px',borderTop:`1px solid ${C.border}` }}>
+              <div style={{ padding:'8px 10px',borderTop:`1px solid ${C.border}`,paddingBottom: isMobile ? 12 : 8 }}>
                 <textarea style={{ ...S.inp,minHeight:60,resize:'vertical',marginBottom:7,fontSize:12 }} placeholder="Ask about the code... (Enter to send)" value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleAskAI()}}} />
                 <button onClick={handleAskAI} disabled={aiLoading||!aiInput.trim()} style={{ width:'100%',padding:'9px',borderRadius:7,background:C.accent,color:'#fff',border:'none',fontFamily:'inherit',fontSize:12,fontWeight:700,cursor:aiLoading?'not-allowed':'pointer',opacity:aiLoading?0.7:1 }}>{aiLoading?'✦ Thinking...':'✨ Ask AI (Enter)'}</button>
               </div>
             </div>
           )}
 
-          {/* Whiteboard — infinite canvas */}
+          {/* Whiteboard — infinite canvas + fullscreen + shared */}
           {activePanel==='whiteboard' && (
-            <div style={{ flex:1,display:'flex',flexDirection:'column',overflow:'hidden' }}>
-              {/* Toolbar */}
-              <div style={{ padding:'5px 8px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:5,alignItems:'center',flexWrap:'wrap',flexShrink:0 }}>
-                {/* Tools */}
-                <button onClick={()=>setWbMode('pen')}  style={{ ...S.btn(wbMode==='pen'), fontSize:10, padding:'3px 8px' }}>✏️ pen</button>
-                <button onClick={()=>setWbMode('eraser')} style={{ ...S.btn(wbMode==='eraser'), fontSize:10, padding:'3px 8px' }}>🧹 eraser</button>
-                <div style={{ width:1,height:16,background:C.border,margin:'0 2px' }}/>
-                {/* Colors */}
-                {['#7c6af7','#3dffa0','#ff5370','#ffca28','#89ddff','#ff7eb3','#fff'].map(c=>(
-                  <button key={c} onClick={()=>{setWbMode('pen');setWbColor(c)}}
-                    style={{ width:16,height:16,borderRadius:'50%',background:c,border:wbColor===c&&wbMode==='pen'?'2px solid #fff':'2px solid transparent',cursor:'pointer',flexShrink:0 }}/>
-                ))}
-                <div style={{ width:1,height:16,background:C.border,margin:'0 2px' }}/>
-                {/* Brush size */}
-                <span style={{ fontSize:9,color:C.muted,fontWeight:700 }}>SIZE</span>
-                <input type="range" min={1} max={30} value={wbSize} onChange={e=>setWbSize(+e.target.value)}
-                  style={{ width:60,cursor:'pointer',accentColor:C.accent }} />
-                <span style={{ fontSize:10,color:C.muted,minWidth:16 }}>{wbSize}</span>
-                <div style={{ width:1,height:16,background:C.border,margin:'0 2px' }}/>
-                {/* Zoom */}
-                <button onClick={()=>setWbScale(s=>Math.min(5,+(s*1.2).toFixed(2)))} style={{ ...S.btn(false),fontSize:10,padding:'2px 6px' }}>＋</button>
-                <span style={{ fontSize:9,color:C.muted,minWidth:28,textAlign:'center' }}>{Math.round(wbScale*100)}%</span>
-                <button onClick={()=>setWbScale(s=>Math.max(0.2,+(s/1.2).toFixed(2)))} style={{ ...S.btn(false),fontSize:10,padding:'2px 6px' }}>－</button>
-                <button onClick={()=>{setWbScale(1);setWbOffset({x:0,y:0})}} style={{ ...S.btn(false),fontSize:9,padding:'2px 6px' }}>↺</button>
-                {/* Undo + Clear */}
-                <button onClick={undoCanvas} style={{ ...S.btn(false),fontSize:10,padding:'2px 6px',marginLeft:'auto' }}>↩ undo</button>
-                <button onClick={clearCanvas} style={{ ...S.btn(false),fontSize:10,padding:'2px 6px',color:C.red,borderColor:'rgba(255,83,112,0.3)' }}>🗑</button>
+            <div style={{
+              flex:1,display:'flex',flexDirection:'column',overflow:'hidden',
+              ...(wbFullscreen ? {
+                position:'fixed',inset:0,zIndex:200,background:'#0d0d14',
+              } : {}),
+            }}>
+              {/* Toolbar — two rows on mobile */}
+              <div style={{ borderBottom:`1px solid ${C.border}`,flexShrink:0,background:C.surface }}>
+                {/* Row 1: tools + colors */}
+                <div style={{ padding:'5px 8px',display:'flex',gap:4,alignItems:'center',flexWrap:'wrap' }}>
+                  <button onClick={()=>setWbMode('pen')} style={{ ...S.btn(wbMode==='pen'),fontSize:10,padding:'4px 8px' }}>✏️ Pen</button>
+                  <button onClick={()=>setWbMode('eraser')} style={{ ...S.btn(wbMode==='eraser'),fontSize:10,padding:'4px 8px' }}>🧹 Erase</button>
+                  <div style={{ width:1,height:14,background:C.border }}/>
+                  {['#7c6af7','#3dffa0','#ff5370','#ffca28','#89ddff','#ff7eb3','#fff'].map(c=>(
+                    <button key={c} onClick={()=>{setWbMode('pen');setWbColor(c)}}
+                      style={{ width:18,height:18,borderRadius:'50%',background:c,border:wbColor===c&&wbMode==='pen'?'2px solid #fff':'2px solid transparent',cursor:'pointer',flexShrink:0,padding:0 }}/>
+                  ))}
+                  <div style={{ marginLeft:'auto',display:'flex',gap:4,alignItems:'center' }}>
+                    <button onClick={undoCanvas} style={{ ...S.btn(false),fontSize:10,padding:'4px 8px' }}>↩</button>
+                    <button onClick={clearCanvas} style={{ ...S.btn(false),fontSize:10,padding:'4px 8px',color:C.red }}>🗑</button>
+                    {/* Fullscreen toggle */}
+                    <button onClick={()=>setWbFullscreen(f=>!f)}
+                      title={wbFullscreen?'Exit fullscreen':'Fullscreen'}
+                      style={{ ...S.btn(wbFullscreen),fontSize:13,padding:'4px 8px' }}>
+                      {wbFullscreen ? '⊠' : '⛶'}
+                    </button>
+                  </div>
+                </div>
+                {/* Row 2: size + zoom */}
+                <div style={{ padding:'3px 8px 5px',display:'flex',gap:6,alignItems:'center',borderTop:`1px solid ${C.border}` }}>
+                  <span style={{ fontSize:9,color:C.muted,fontWeight:700,flexShrink:0 }}>SIZE</span>
+                  <input type="range" min={1} max={30} value={wbSize} onChange={e=>setWbSize(+e.target.value)}
+                    style={{ flex:1,maxWidth:100,cursor:'pointer',accentColor:C.accent }} />
+                  <span style={{ fontSize:10,color:C.muted,minWidth:14,textAlign:'right' }}>{wbSize}</span>
+                  <div style={{ width:1,height:14,background:C.border,margin:'0 4px' }}/>
+                  <button onClick={()=>setWbScale(s=>Math.min(5,+(s*1.2).toFixed(2)))} style={{ ...S.btn(false),fontSize:11,padding:'2px 7px' }}>+</button>
+                  <span style={{ fontSize:9,color:C.muted,minWidth:30,textAlign:'center' }}>{Math.round(wbScale*100)}%</span>
+                  <button onClick={()=>setWbScale(s=>Math.max(0.2,+(s/1.2).toFixed(2)))} style={{ ...S.btn(false),fontSize:11,padding:'2px 7px' }}>−</button>
+                  <button onClick={()=>{setWbScale(1);setWbOffset({x:0,y:0})}} style={{ ...S.btn(false),fontSize:9,padding:'2px 6px' }}>↺</button>
+                  <span style={{ fontSize:9,color:'#3a3a55',marginLeft:'auto',display:isMobile?'none':'block' }}>Alt+drag·scroll zoom</span>
+                </div>
               </div>
-              {/* Canvas — fills remaining space, resize-safe */}
+
+              {/* Canvas */}
               <div ref={wbContainerRef} style={{ flex:1,position:'relative',overflow:'hidden',background:'#0d0d14' }}>
                 <canvas ref={canvasRef}
-                  style={{ position:'absolute',top:0,left:0,cursor:wbMode==='eraser'?'cell':panning.current?'grabbing':'crosshair',touchAction:'none' }}
+                  style={{ position:'absolute',top:0,left:0,cursor:wbMode==='eraser'?'cell':'crosshair',touchAction:'none' }}
                   onMouseDown={startDraw} onMouseMove={doDraw} onMouseUp={stopDraw} onMouseLeave={stopDraw}
+                  onTouchStart={e=>{e.preventDefault();const t=e.touches[0];startDraw({clientX:t.clientX,clientY:t.clientY,button:0})}}
+                  onTouchMove={e=>{e.preventDefault();const t=e.touches[0];doDraw({clientX:t.clientX,clientY:t.clientY})}}
+                  onTouchEnd={stopDraw}
                   onWheel={onWbWheel}
                 />
-                <div style={{ position:'absolute',bottom:6,right:8,fontSize:10,color:'#3a3a55',pointerEvents:'none',userSelect:'none' }}>
-                  Alt+drag to pan · scroll to zoom
-                </div>
+                {/* Fullscreen ESC hint */}
+                {wbFullscreen && (
+                  <button onClick={()=>setWbFullscreen(false)}
+                    style={{ position:'absolute',top:10,right:10,padding:'6px 12px',borderRadius:7,background:'rgba(0,0,0,0.6)',border:`1px solid ${C.border}`,color:C.muted,cursor:'pointer',fontSize:11,fontFamily:'inherit' }}>
+                    ✕ Exit fullscreen
+                  </button>
+                )}
               </div>
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Mobile bottom nav */}
       {isMobile && (
-        <div style={{ position:'fixed',bottom:0,left:0,right:0,height:52,background:C.surface,borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',zIndex:50,paddingBottom:'env(safe-area-inset-bottom)' }}>
-          <button onClick={()=>setMobileSidebarOpen(o=>!o)} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:mobileSidebarOpen?C.accent:C.muted,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
-            <span>📁</span><span style={{fontSize:9,fontWeight:700}}>Files</span>
-          </button>
-          <button onClick={()=>{setMobilePanelOpen(true);dispatch(setActivePanel('chat'))}} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:activePanel==='chat'&&mobilePanelOpen?C.accent:C.muted,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
-            <span>💬</span><span style={{fontSize:9,fontWeight:700}}>Chat</span>
-          </button>
-          <button onClick={handleRunCode} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:C.green,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
-            <span>▶</span><span style={{fontSize:9,fontWeight:700}}>Run</span>
-          </button>
-          <button onClick={()=>{setMobilePanelOpen(true);dispatch(setActivePanel('terminal'))}} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:activePanel==='terminal'&&mobilePanelOpen?C.accent:C.muted,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
-            <span>⌨️</span><span style={{fontSize:9,fontWeight:700}}>Term</span>
-          </button>
-          <button onClick={()=>{setMobilePanelOpen(true);dispatch(setActivePanel('whiteboard'))}} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,background:'none',border:'none',color:activePanel==='whiteboard'&&mobilePanelOpen?C.accent:C.muted,cursor:'pointer',fontSize:18,padding:'6px 0',fontFamily:'inherit' }}>
-            <span>🎨</span><span style={{fontSize:9,fontWeight:700}}>Board</span>
-          </button>
+        <div style={{ position:'fixed',bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,display:'flex',zIndex:70,paddingBottom:'env(safe-area-inset-bottom)' }}>
+          {[
+            { icon:'📁', label:'Files', action:()=>{ setMobilePanelOpen(false); setMobileSidebarOpen(o=>!o) }, active: mobileSidebarOpen && !mobilePanelOpen },
+            { icon:'💬', label:'Chat',  action:()=>{ setMobileSidebarOpen(false); dispatch(setActivePanel('chat')); setMobilePanelOpen(true) }, active: mobilePanelOpen && activePanel==='chat' },
+            { icon:'▶',  label:'Run',   action: handleRunCode, active: false, green: true },
+            { icon:'⌨️', label:'Term',  action:()=>{ setMobileSidebarOpen(false); dispatch(setActivePanel('terminal')); setMobilePanelOpen(true) }, active: mobilePanelOpen && activePanel==='terminal' },
+            { icon:'🎨', label:'Board', action:()=>{ setMobileSidebarOpen(false); dispatch(setActivePanel('whiteboard')); setMobilePanelOpen(true) }, active: mobilePanelOpen && activePanel==='whiteboard' },
+          ].map(({icon,label,action,active,green})=>(
+            <button key={label} onClick={action} style={{ flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,background:'none',border:'none',borderTop: active ? `2px solid ${C.accent}` : '2px solid transparent',color: green ? C.green : active ? C.accent : C.muted,cursor:'pointer',padding:'8px 0 6px',fontFamily:'inherit',transition:'color .15s' }}>
+              <span style={{fontSize:17,lineHeight:1}}>{icon}</span>
+              <span style={{fontSize:9,fontWeight:700,letterSpacing:'0.3px'}}>{label}</span>
+            </button>
+          ))}
         </div>
       )}
 
