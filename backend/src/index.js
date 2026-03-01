@@ -44,11 +44,11 @@ const allowedOrigins = [
   'http://localhost:5173',
 ].filter(Boolean)
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true)
-    if (allowedOrigins.some(o => origin.startsWith(o.replace(/\/$/, '')))) {
+    const clean = (o) => o.replace(/\/$/, '')
+    if (allowedOrigins.some(o => clean(origin) === clean(o))) {
       return callback(null, true)
     }
     return callback(new Error(`CORS blocked: ${origin}`))
@@ -56,8 +56,10 @@ app.use(cors({
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
-}))
-app.options('*', cors())
+}
+
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))  // preflight must use same config
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'))
@@ -81,7 +83,16 @@ app.use((err, req, res, next) => {
 
 // ── Socket.io ──────────────────────────────────────────────────────────────
 const io = new Server(httpServer, {
-  cors: { origin: allowedOrigins, credentials: true, methods: ['GET','POST'] },
+  cors: {
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true)
+      const clean = (o) => o.replace(/\/$/, '')
+      if (allowedOrigins.some(o => clean(origin) === clean(o))) return callback(null, true)
+      return callback(new Error('CORS blocked'))
+    },
+    credentials: true,
+    methods: ['GET','POST'],
+  },
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000,
