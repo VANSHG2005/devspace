@@ -303,10 +303,14 @@ export default function WorkspacePage() {
   const [aiLoading, setAiLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [wbMode, setWbMode] = useState('pen')
+  const [showColorPicker, setShowColorPicker] = useState(false)
+  const [cursorPos, setCursorPos] = useState({x:-100,y:-100})
   const [wbColor, setWbColor] = useState('#7c6af7')
   const [wbSize, setWbSize] = useState(3)
   const [wbOffset, setWbOffset] = useState({x:0,y:0})
+  const wbOffsetRef = useRef({x:0,y:0})   // ref so redrawCanvas always reads latest
   const [wbScale, setWbScale] = useState(1)
+  const wbScaleRef = useRef(1)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [mediaStreams, setMediaStreams] = useState([])
   const [showCameraEffects, setShowCameraEffects] = useState(false)
@@ -335,6 +339,10 @@ export default function WorkspacePage() {
 
   useSocket(workspaceId)
   useAutoSave(workspaceId)
+
+  // Keep refs in sync with state so canvas callbacks always read latest values
+  useEffect(() => { wbOffsetRef.current = wbOffset }, [wbOffset])
+  useEffect(() => { wbScaleRef.current = wbScale }, [wbScale])
 
   // ── Terminal socket output ──────────────────────────────────────────────
   useEffect(() => {
@@ -555,15 +563,18 @@ export default function WorkspacePage() {
   const copyLink = () => { navigator.clipboard.writeText(`${window.location.origin}/workspace/${workspaceId}`); setCopied(true); toast.success('Link copied!'); setTimeout(()=>setCopied(false),2000) }
 
   // Convert screen coords → canvas world coords
-  const toWorld=(e,r)=>({ x:(e.clientX-r.left)/wbScale - wbOffset.x, y:(e.clientY-r.top)/wbScale - wbOffset.y })
+  const toWorld=(e,r)=>({ x:(e.clientX-r.left)/wbScaleRef.current - wbOffsetRef.current.x, y:(e.clientY-r.top)/wbScaleRef.current - wbOffsetRef.current.y })
 
   const redrawCanvas=()=>{
     const c=canvasRef.current; if(!c) return
     const ctx=c.getContext('2d')
+    // Use refs to always get the latest offset/scale — avoids stale closure bug
+    const scale = wbScaleRef.current
+    const offset = wbOffsetRef.current
     ctx.clearRect(0,0,c.width,c.height)
     ctx.save()
-    ctx.scale(wbScale,wbScale)
-    ctx.translate(wbOffset.x,wbOffset.y)
+    ctx.scale(scale,scale)
+    ctx.translate(offset.x,offset.y)
     strokesRef.current.forEach(s=>{
       if(s.points.length<2) return
       ctx.beginPath(); ctx.strokeStyle=s.color; ctx.lineWidth=s.size; ctx.lineCap='round'; ctx.lineJoin='round'
@@ -578,7 +589,7 @@ export default function WorkspacePage() {
   }
 
   const startDraw=(e)=>{
-    if(e.button===1||(e.button===0&&e.altKey)){ panning.current=true; panStart.current={x:e.clientX-wbOffset.x*wbScale,y:e.clientY-wbOffset.y*wbScale}; return }
+    if(e.button===1||(e.button===0&&e.altKey)){ panning.current=true; panStart.current={x:e.clientX-wbOffsetRef.current.x*wbScaleRef.current,y:e.clientY-wbOffsetRef.current.y*wbScaleRef.current}; return }
     drawing.current=true
     const r=canvasRef.current.getBoundingClientRect()
     const wp=toWorld(e,r)
@@ -586,9 +597,11 @@ export default function WorkspacePage() {
     currentStroke.current=[wp]
   }
   const doDraw=(e)=>{
+    // Update cursor dot position (screen coords for overlay)
     const r=canvasRef.current.getBoundingClientRect()
+    setCursorPos({x: e.clientX - r.left, y: e.clientY - r.top})
     if(panning.current){
-      const nx=(e.clientX-panStart.current.x)/wbScale, ny=(e.clientY-panStart.current.y)/wbScale
+      const nx=(e.clientX-panStart.current.x)/wbScaleRef.current, ny=(e.clientY-panStart.current.y)/wbScaleRef.current
       setWbOffset({x:nx,y:ny}); return
     }
     if(!drawing.current||!lastPos.current) return
@@ -596,7 +609,7 @@ export default function WorkspacePage() {
     currentStroke.current.push(wp)
     // Draw incremental segment on canvas for performance
     const c=canvasRef.current,ctx=c.getContext('2d')
-    ctx.save(); ctx.scale(wbScale,wbScale); ctx.translate(wbOffset.x,wbOffset.y)
+    ctx.save(); ctx.scale(wbScaleRef.current,wbScaleRef.current); ctx.translate(wbOffsetRef.current.x,wbOffsetRef.current.y)
     ctx.strokeStyle=wbMode==='eraser'?'rgba(0,0,0,1)':wbColor
     ctx.lineWidth=wbMode==='eraser'?wbSize*3:wbSize
     ctx.lineCap='round'; ctx.lineJoin='round'
@@ -982,61 +995,120 @@ export default function WorkspacePage() {
           {activePanel==='whiteboard' && (
             <div style={{
               flex:1,display:'flex',flexDirection:'column',overflow:'hidden',
-              ...(wbFullscreen ? {
-                position:'fixed',inset:0,zIndex:200,background:'#0d0d14',
-              } : {}),
+              ...(wbFullscreen ? { position:'fixed',inset:0,zIndex:200,background:'#0d0d14' } : {}),
             }}>
-              {/* Toolbar — two rows on mobile */}
+              {/* Toolbar */}
               <div style={{ borderBottom:`1px solid ${C.border}`,flexShrink:0,background:C.surface }}>
-                {/* Row 1: tools + colors */}
+                {/* Row 1: tools + color swatches + actions */}
                 <div style={{ padding:'5px 8px',display:'flex',gap:4,alignItems:'center',flexWrap:'wrap' }}>
                   <button onClick={()=>setWbMode('pen')} style={{ ...S.btn(wbMode==='pen'),fontSize:10,padding:'4px 8px' }}>✏️ Pen</button>
                   <button onClick={()=>setWbMode('eraser')} style={{ ...S.btn(wbMode==='eraser'),fontSize:10,padding:'4px 8px' }}>🧹 Erase</button>
-                  <div style={{ width:1,height:14,background:C.border }}/>
-                  {['#7c6af7','#3dffa0','#ff5370','#ffca28','#89ddff','#ff7eb3','#fff'].map(c=>(
-                    <button key={c} onClick={()=>{setWbMode('pen');setWbColor(c)}}
-                      style={{ width:18,height:18,borderRadius:'50%',background:c,border:wbColor===c&&wbMode==='pen'?'2px solid #fff':'2px solid transparent',cursor:'pointer',flexShrink:0,padding:0 }}/>
+                  <div style={{ width:1,height:16,background:C.border,margin:'0 2px',flexShrink:0 }}/>
+                  {/* Quick swatches */}
+                  {['#7c6af7','#3dffa0','#ff5370','#ffca28','#89ddff','#ff7eb3','#ffffff','#000000'].map(c=>(
+                    <button key={c} onClick={()=>{setWbMode('pen');setWbColor(c);setShowColorPicker(false)}}
+                      style={{ width:20,height:20,borderRadius:'50%',background:c,
+                        border: wbColor===c&&wbMode==='pen' ? '2px solid #fff' : '2px solid rgba(255,255,255,0.15)',
+                        cursor:'pointer',flexShrink:0,padding:0,boxShadow:wbColor===c&&wbMode==='pen'?`0 0 0 2px ${C.accent}`:'none',
+                        transition:'box-shadow .15s' }}/>
                   ))}
+                  {/* Custom color picker */}
+                  <div style={{ position:'relative',flexShrink:0 }}>
+                    <button onClick={()=>setShowColorPicker(v=>!v)}
+                      title="Custom color"
+                      style={{ width:24,height:24,borderRadius:6,background:`conic-gradient(red,yellow,lime,cyan,blue,magenta,red)`,
+                        border: showColorPicker?`2px solid ${C.accent}`:'2px solid rgba(255,255,255,0.2)',
+                        cursor:'pointer',padding:0,flexShrink:0 }} />
+                    {showColorPicker && (
+                      <div onClick={e=>e.stopPropagation()} style={{ position:'absolute',top:'calc(100% + 6px)',left:0,zIndex:300,
+                        background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:12,
+                        boxShadow:'0 8px 32px rgba(0,0,0,0.6)',minWidth:200 }}>
+                        <div style={{ fontSize:10,color:C.muted,marginBottom:8,fontWeight:700 }}>CUSTOM COLOR</div>
+                        {/* Hue rows */}
+                        {[
+                          ['#ff0000','#ff4400','#ff8800','#ffaa00','#ffcc00','#ffff00'],
+                          ['#88ff00','#00ff00','#00ff88','#00ffcc','#00ffff','#00ccff'],
+                          ['#0088ff','#0044ff','#4400ff','#8800ff','#cc00ff','#ff00ff'],
+                          ['#ff0088','#ffffff','#cccccc','#888888','#444444','#000000'],
+                          ['#7c6af7','#3dffa0','#ff5370','#ffca28','#89ddff','#ff7eb3'],
+                        ].map((row,i)=>(
+                          <div key={i} style={{ display:'flex',gap:5,marginBottom:5 }}>
+                            {row.map(c=>(
+                              <button key={c} onClick={()=>{setWbColor(c);setWbMode('pen');setShowColorPicker(false)}}
+                                style={{ width:24,height:24,borderRadius:5,background:c,border:wbColor===c?`2px solid #fff`:'2px solid transparent',cursor:'pointer',padding:0,flexShrink:0 }}/>
+                            ))}
+                          </div>
+                        ))}
+                        {/* Hex input */}
+                        <div style={{ display:'flex',gap:6,marginTop:4,alignItems:'center' }}>
+                          <div style={{ width:24,height:24,borderRadius:5,background:wbColor,flexShrink:0,border:'1px solid rgba(255,255,255,0.2)' }}/>
+                          <input value={wbColor} onChange={e=>{ if(/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) setWbColor(e.target.value) }}
+                            style={{ flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,padding:'4px 8px',fontSize:12,fontFamily:'monospace',outline:'none' }}/>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <div style={{ marginLeft:'auto',display:'flex',gap:4,alignItems:'center' }}>
-                    <button onClick={undoCanvas} style={{ ...S.btn(false),fontSize:10,padding:'4px 8px' }}>↩</button>
-                    <button onClick={clearCanvas} style={{ ...S.btn(false),fontSize:10,padding:'4px 8px',color:C.red }}>🗑</button>
-                    {/* Fullscreen toggle */}
-                    <button onClick={()=>setWbFullscreen(f=>!f)}
-                      title={wbFullscreen?'Exit fullscreen':'Fullscreen'}
+                    <button onClick={undoCanvas} style={{ ...S.btn(false),fontSize:10,padding:'4px 8px' }} title="Undo">↩</button>
+                    <button onClick={clearCanvas} style={{ ...S.btn(false),fontSize:10,padding:'4px 8px',color:C.red }} title="Clear all">🗑</button>
+                    <button onClick={()=>setWbFullscreen(f=>!f)} title={wbFullscreen?'Exit fullscreen':'Fullscreen'}
                       style={{ ...S.btn(wbFullscreen),fontSize:13,padding:'4px 8px' }}>
                       {wbFullscreen ? '⊠' : '⛶'}
                     </button>
                   </div>
                 </div>
-                {/* Row 2: size + zoom */}
+                {/* Row 2: brush size + zoom */}
                 <div style={{ padding:'3px 8px 5px',display:'flex',gap:6,alignItems:'center',borderTop:`1px solid ${C.border}` }}>
-                  <span style={{ fontSize:9,color:C.muted,fontWeight:700,flexShrink:0 }}>SIZE</span>
-                  <input type="range" min={1} max={30} value={wbSize} onChange={e=>setWbSize(+e.target.value)}
+                  {/* Brush dot preview */}
+                  <div style={{ width:Math.min(wbSize,20)+4,height:Math.min(wbSize,20)+4,borderRadius:'50%',
+                    background:wbMode==='eraser'?'rgba(255,255,255,0.3)':wbColor,flexShrink:0,
+                    border:'1px solid rgba(255,255,255,0.2)',transition:'all .1s' }}/>
+                  <input type="range" min={1} max={50} value={wbSize} onChange={e=>setWbSize(+e.target.value)}
                     style={{ flex:1,maxWidth:100,cursor:'pointer',accentColor:C.accent }} />
-                  <span style={{ fontSize:10,color:C.muted,minWidth:14,textAlign:'right' }}>{wbSize}</span>
+                  <span style={{ fontSize:10,color:C.muted,minWidth:18,textAlign:'right',fontFamily:'monospace' }}>{wbSize}px</span>
                   <div style={{ width:1,height:14,background:C.border,margin:'0 4px' }}/>
-                  <button onClick={()=>setWbScale(s=>Math.min(5,+(s*1.2).toFixed(2)))} style={{ ...S.btn(false),fontSize:11,padding:'2px 7px' }}>+</button>
-                  <span style={{ fontSize:9,color:C.muted,minWidth:30,textAlign:'center' }}>{Math.round(wbScale*100)}%</span>
-                  <button onClick={()=>setWbScale(s=>Math.max(0.2,+(s/1.2).toFixed(2)))} style={{ ...S.btn(false),fontSize:11,padding:'2px 7px' }}>−</button>
-                  <button onClick={()=>{setWbScale(1);setWbOffset({x:0,y:0})}} style={{ ...S.btn(false),fontSize:9,padding:'2px 6px' }}>↺</button>
+                  <button onClick={()=>setWbScale(s=>{const v=Math.min(5,+(s*1.2).toFixed(2));wbScaleRef.current=v;return v})} style={{ ...S.btn(false),fontSize:11,padding:'2px 7px' }}>+</button>
+                  <span style={{ fontSize:9,color:C.muted,minWidth:32,textAlign:'center',fontFamily:'monospace' }}>{Math.round(wbScale*100)}%</span>
+                  <button onClick={()=>setWbScale(s=>{const v=Math.max(0.2,+(s/1.2).toFixed(2));wbScaleRef.current=v;return v})} style={{ ...S.btn(false),fontSize:11,padding:'2px 7px' }}>−</button>
+                  <button onClick={()=>{wbScaleRef.current=1;wbOffsetRef.current={x:0,y:0};setWbScale(1);setWbOffset({x:0,y:0});setTimeout(redrawCanvas,0)}} style={{ ...S.btn(false),fontSize:9,padding:'2px 6px' }}>↺</button>
                   <span style={{ fontSize:9,color:'#3a3a55',marginLeft:'auto',display:isMobile?'none':'block' }}>Alt+drag·scroll zoom</span>
                 </div>
               </div>
 
-              {/* Canvas */}
-              <div ref={wbContainerRef} style={{ flex:1,position:'relative',overflow:'hidden',background:'#0d0d14' }}>
+              {/* Canvas area */}
+              <div ref={wbContainerRef} style={{ flex:1,position:'relative',overflow:'hidden',background:'#0d0d14',cursor:'none' }}
+                onClick={()=>showColorPicker&&setShowColorPicker(false)}>
                 <canvas ref={canvasRef}
-                  style={{ position:'absolute',top:0,left:0,cursor:wbMode==='eraser'?'cell':'crosshair',touchAction:'none' }}
-                  onMouseDown={startDraw} onMouseMove={doDraw} onMouseUp={stopDraw} onMouseLeave={stopDraw}
+                  style={{ position:'absolute',top:0,left:0,cursor:'none',touchAction:'none' }}
+                  onMouseDown={startDraw} onMouseMove={doDraw} onMouseUp={stopDraw}
+                  onMouseLeave={()=>{stopDraw();setCursorPos({x:-100,y:-100})}}
                   onTouchStart={e=>{e.preventDefault();const t=e.touches[0];startDraw({clientX:t.clientX,clientY:t.clientY,button:0})}}
                   onTouchMove={e=>{e.preventDefault();const t=e.touches[0];doDraw({clientX:t.clientX,clientY:t.clientY})}}
                   onTouchEnd={stopDraw}
                   onWheel={onWbWheel}
                 />
-                {/* Fullscreen ESC hint */}
+                {/* Custom cursor dot */}
+                <div style={{
+                  position:'absolute',
+                  pointerEvents:'none',
+                  zIndex:10,
+                  left: cursorPos.x,
+                  top: cursorPos.y,
+                  width: wbMode==='eraser' ? wbSize*3 : wbSize,
+                  height: wbMode==='eraser' ? wbSize*3 : wbSize,
+                  borderRadius:'50%',
+                  background: wbMode==='eraser' ? 'rgba(255,255,255,0.15)' : wbColor,
+                  border: wbMode==='eraser' ? '2px solid rgba(255,255,255,0.5)' : '1.5px solid rgba(255,255,255,0.5)',
+                  transform:'translate(-50%,-50%)',
+                  transition:'width .05s,height .05s',
+                  mixBlendMode: wbMode==='eraser' ? 'difference' : 'normal',
+                  opacity: cursorPos.x < 0 ? 0 : 1,
+                }}/>
                 {wbFullscreen && (
                   <button onClick={()=>setWbFullscreen(false)}
-                    style={{ position:'absolute',top:10,right:10,padding:'6px 12px',borderRadius:7,background:'rgba(0,0,0,0.6)',border:`1px solid ${C.border}`,color:C.muted,cursor:'pointer',fontSize:11,fontFamily:'inherit' }}>
+                    style={{ position:'absolute',top:10,right:10,padding:'6px 12px',borderRadius:7,
+                      background:'rgba(0,0,0,0.7)',border:`1px solid ${C.border}`,color:C.muted,
+                      cursor:'pointer',fontSize:11,fontFamily:'inherit' }}>
                     ✕ Exit fullscreen
                   </button>
                 )}

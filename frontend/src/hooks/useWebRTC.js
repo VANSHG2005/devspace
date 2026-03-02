@@ -111,8 +111,14 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
   // ── Incoming voice offer ──────────────────────────────────────────────────
   const handleVoiceOffer = useCallback(async (fromId, offer) => {
     const socket = getSocket()
+
+    if (voicePeers.current[fromId]) {
+      try { voicePeers.current[fromId].close() } catch {}
+    }
+
     const pc = new RTCPeerConnection(ICE)
     voicePeers.current[fromId] = pc
+    console.log('[WebRTC] incoming voice offer from', fromId)
 
     if (localAudioRef.current) {
       localAudioRef.current.getTracks().forEach(t => pc.addTrack(t, localAudioRef.current))
@@ -136,6 +142,11 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
   const handleMediaOffer = useCallback(async (fromId, fromName, offer, kind) => {
     const socket = getSocket()
     const peersRef = kind === 'screen' ? screenPeers : cameraPeers
+
+    if (peersRef.current[fromId]) {
+      try { peersRef.current[fromId].close() } catch {}
+    }
+
     const pc = new RTCPeerConnection(ICE)
     peersRef.current[fromId] = pc
 
@@ -143,7 +154,12 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
       if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: fromId, signal: candidate, type: `ice-${kind}` })
     }
 
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] incoming ${kind} from ${fromName}: ${pc.connectionState}`)
+    }
+
     pc.ontrack = ({ streams }) => {
+      console.log(`[WebRTC] received ${kind} track from ${fromName}`, streams[0])
       if (setMediaStreams) {
         // Camera streams need mirror=true (front cameras capture mirrored data)
         // Screen share streams should NOT be mirrored
@@ -177,6 +193,11 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
     const others = (onlineUsers || []).filter(u => u.id !== user?.id)
 
     for (const other of others) {
+      // Close any existing connection for this peer+kind
+      if (peersRef.current[other.id]) {
+        try { peersRef.current[other.id].close() } catch {}
+      }
+
       const pc = new RTCPeerConnection(ICE)
       peersRef.current[other.id] = pc
 
@@ -186,18 +207,38 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
         if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: other.id, signal: candidate, type: `ice-${kind}` })
       }
 
-      if (kind === 'voice') {
-        pc.ontrack = ({ streams }) => playAudio(streams[0])
+      // Log connection state for debugging
+      pc.onconnectionstatechange = () => {
+        console.log(`[WebRTC] ${kind} → ${other.id}: ${pc.connectionState}`)
+        if (pc.connectionState === 'failed') {
+          console.warn('[WebRTC] Connection failed — try restarting ICE')
+          try { pc.restartIce() } catch {}
+        }
       }
 
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-      socket?.emit(EVENTS.WEBRTC_SIGNAL, {
-        to: other.id,
-        signal: offer,
-        fromName: user?.name,
-        type: `${kind}-offer`,
-      })
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] ICE ${kind} → ${other.id}: ${pc.iceConnectionState}`)
+      }
+
+      if (kind === 'voice') {
+        pc.ontrack = ({ streams }) => {
+          console.log('[WebRTC] Received remote audio track')
+          playAudio(streams[0])
+        }
+      }
+
+      try {
+        const offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        socket?.emit(EVENTS.WEBRTC_SIGNAL, {
+          to: other.id,
+          signal: offer,
+          fromName: user?.name,
+          type: `${kind}-offer`,
+        })
+      } catch (err) {
+        console.error('[WebRTC] offer failed:', err)
+      }
     }
   }
 
@@ -224,12 +265,14 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
 
   // ── Screen share ──────────────────────────────────────────────────────────
   const startScreenShare = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+      audio: true,  // capture tab/system audio if permitted
+    })
     screenStreamRef.current = stream
     setScreenOn(true)
     stream.getVideoTracks()[0].onended = () => stopScreenShare()
 
-    // Local preview — no mirror needed for screen share
     if (setMediaStreams) {
       setMediaStreams(prev => [
         ...prev.filter(s => s.kind !== 'screen-local'),
@@ -255,6 +298,7 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
         width: { ideal: 1280 },
         height: { ideal: 720 },
         facingMode: 'user',
+        frameRate: { ideal: 30 },
       },
       audio: false,
     })
