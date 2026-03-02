@@ -1,11 +1,15 @@
 import { Router } from 'express'
 import { body } from 'express-validator'
-import { signup, login, getMe, refresh, updateProfile } from '../controllers/auth.controller.js'
+import { signup, signupRequest, login, getMe, refresh, updateProfile } from '../controllers/auth.controller.js'
 import { authenticate } from '../middleware/auth.middleware.js'
 import { validate } from '../middleware/validate.middleware.js'
 import { authLimiter } from '../middleware/rateLimit.middleware.js'
 
 const router = Router()
+
+router.post('/signup/request', authLimiter,
+  [body('name').trim().notEmpty(), body('email').isEmail().normalizeEmail(), body('password').isLength({min:6})],
+  validate, signupRequest)
 
 router.post('/signup', authLimiter,
   [body('name').trim().notEmpty().isLength({min:2,max:100}), body('email').isEmail().normalizeEmail(), body('password').isLength({min:6})],

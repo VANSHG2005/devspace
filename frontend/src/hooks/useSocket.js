@@ -72,7 +72,11 @@ export const useSocket = (workspaceId) => {
       }
     })
 
-    socket.on(EVENTS.CURSOR_UPDATE, (data) => dispatch(updateCursor(data)))
+    socket.on(EVENTS.CURSOR_UPDATE, (data) => {
+      // Never update own cursor from server broadcast
+      if (data.userId === user?.id) return
+      dispatch(updateCursor(data))
+    })
     socket.on(EVENTS.TYPING_START, ({ userId, name }) => dispatch(setTypingUsers([{ userId, name }])))
     socket.on(EVENTS.TYPING_STOP, () => dispatch(setTypingUsers([])))
     socket.on(EVENTS.FILE_CREATED, (file) => dispatch(addFile(file)))

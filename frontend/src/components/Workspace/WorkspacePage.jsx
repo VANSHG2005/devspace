@@ -821,8 +821,13 @@ export default function WorkspacePage() {
           borderLeft: isMobile ? 'none' : `1px solid ${C.border}`,
           display:'flex',flexDirection:'column',flexShrink:0,
           ...(isMobile ? {
-            position:'fixed', inset:0, zIndex:60,
-            background:C.bg,
+            position:'fixed',
+            top: 0, left: 0, right: 0,
+            bottom: 0,
+            height: '100dvh',   // dynamic viewport height — shrinks when keyboard opens
+            zIndex: 60,
+            background: C.bg,
+            overflowY: 'hidden',
           } : {}),
         }}>
           {/* Tab bar — desktop only (mobile uses bottom nav) */}
@@ -848,8 +853,8 @@ export default function WorkspacePage() {
 
           {/* Chat */}
           {activePanel==='chat' && (
-            <div style={{ flex:1,display:'flex',flexDirection:'column',overflow:'hidden' }}>
-              <div style={{ flex:1,overflowY:'auto',padding:'10px',display:'flex',flexDirection:'column',gap:8 }}>
+            <div style={{ flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minHeight:0 }}>
+              <div style={{ flex:1,overflowY:'auto',padding:'10px',display:'flex',flexDirection:'column',gap:8,minHeight:0 }}>
                 {(messages||[]).length===0 && <div style={{ textAlign:'center',color:'#3a3a55',fontSize:12,marginTop:40 }}>No messages yet 👋</div>}
                 {(messages||[]).map((msg,i)=>{
                   const isMe=msg.user?.id===user?.id
@@ -868,9 +873,12 @@ export default function WorkspacePage() {
                 })}
                 <div ref={chatEndRef} />
               </div>
-              <div style={{ padding:'8px 10px',borderTop:`1px solid ${C.border}`,display:'flex',gap:7 }}>
-                <input style={{ ...S.inp,flex:1,fontSize:12 }} placeholder="Message..." value={newMsg} onChange={e=>setNewMsg(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendMessage()} />
-                <button onClick={sendMessage} style={{ padding:'8px 12px',borderRadius:8,background:C.accent,color:'#fff',border:'none',cursor:'pointer',fontSize:14 }}>↑</button>
+              <div style={{ padding:'8px 10px',borderTop:`1px solid ${C.border}`,display:'flex',gap:7,flexShrink:0,background:C.bg }}>
+                <input style={{ ...S.inp,flex:1,fontSize:16 }} placeholder="Message..." value={newMsg}
+                  onChange={e=>setNewMsg(e.target.value)}
+                  onKeyDown={e=>e.key==='Enter'&&sendMessage()}
+                  onFocus={e=>{ if(isMobile) setTimeout(()=>e.target.scrollIntoView({block:'nearest'}),300) }} />
+                <button onClick={sendMessage} style={{ padding:'8px 14px',borderRadius:8,background:C.accent,color:'#fff',border:'none',cursor:'pointer',fontSize:14,flexShrink:0 }}>↑</button>
               </div>
             </div>
           )}
