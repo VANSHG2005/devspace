@@ -3,11 +3,9 @@ import { useSelector } from 'react-redux'
 import { getSocket, EVENTS } from '../utils/socket'
 
 // ── TURN credentials ──────────────────────────────────────────────────────────
-// Reads from Vercel env vars — supports both self-hosted CoTURN and Metered
-// VITE_TURN_URL  = your CoTURN server hostname e.g. devspace-turn.onrender.com
-// VITE_TURN_USER = username you set in Render env vars
-// VITE_TURN_PASS = password you set in Render env vars
-const TURN_URL  = import.meta.env.VITE_TURN_URL  || 'standard.relay.metered.ca'
+// Replace TURN_USER and TURN_PASS with credentials from dashboard.metered.ca
+// Free plan: 500MB/month, no credit card needed
+// Sign up: https://dashboard.metered.ca/signup → create app → TURN Server → Generate Credentials
 const TURN_USER = import.meta.env.VITE_TURN_USER || ''
 const TURN_PASS = import.meta.env.VITE_TURN_PASS || ''
 
@@ -15,17 +13,19 @@ const buildICE = () => {
   const servers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
   ]
 
+  // Only add TURN if credentials are configured
   if (TURN_USER && TURN_PASS) {
     servers.push(
-      { urls: `turn:${TURN_URL}:3478`,                username: TURN_USER, credential: TURN_PASS },
-      { urls: `turn:${TURN_URL}:3478?transport=tcp`,  username: TURN_USER, credential: TURN_PASS },
-      { urls: `turn:${TURN_URL}:443`,                 username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turn:standard.relay.metered.ca:80',               username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turn:standard.relay.metered.ca:443',              username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: TURN_USER, credential: TURN_PASS },
     )
-    console.log('[RTC] TURN server:', TURN_URL)
   } else {
-    console.warn('[RTC] ⚠️  No TURN credentials set — cross-device calls may fail on restricted networks')
+    console.warn('[RTC] ⚠️  No TURN credentials — cross-device calls will fail. Add VITE_TURN_USER + VITE_TURN_PASS to Vercel env vars.')
   }
 
   return { iceServers: servers, iceCandidatePoolSize: 10 }
@@ -336,3 +336,9 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
 }
 
 export default useWebRTC
+
+
+
+
+VITE_TURN_USER=386c3cb355a58440ec422fea
+VITE_TURN_PASS=9/L9dPtT7cHw227t
