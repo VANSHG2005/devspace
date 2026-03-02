@@ -2,22 +2,36 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import { useSelector } from 'react-redux'
 import { getSocket, EVENTS } from '../utils/socket'
 
-const ICE_CONFIG = {
-  iceServers: [
+// ── TURN credentials ──────────────────────────────────────────────────────────
+// Replace TURN_USER and TURN_PASS with credentials from dashboard.metered.ca
+// Free plan: 500MB/month, no credit card needed
+// Sign up: https://dashboard.metered.ca/signup → create app → TURN Server → Generate Credentials
+const TURN_USER = import.meta.env.VITE_TURN_USER || ''
+const TURN_PASS = import.meta.env.VITE_TURN_PASS || ''
+
+const buildICE = () => {
+  const servers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turns:openrelay.metered.ca:443',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-  ],
-  iceCandidatePoolSize: 10,
+    { urls: 'stun:stun.relay.metered.ca:80' },
+  ]
+
+  // Only add TURN if credentials are configured
+  if (TURN_USER && TURN_PASS) {
+    servers.push(
+      { urls: 'turn:standard.relay.metered.ca:80',               username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turn:standard.relay.metered.ca:443',              username: TURN_USER, credential: TURN_PASS },
+      { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: TURN_USER, credential: TURN_PASS },
+    )
+  } else {
+    console.warn('[RTC] ⚠️  No TURN credentials — cross-device calls will fail. Add VITE_TURN_USER + VITE_TURN_PASS to Vercel env vars.')
+  }
+
+  return { iceServers: servers, iceCandidatePoolSize: 10 }
 }
+
+const ICE_CONFIG = buildICE()
 
 const AUDIO_CONSTRAINTS = {
   audio: {
