@@ -35,11 +35,15 @@ const ICE_CONFIG = buildICE()
 
 const AUDIO_CONSTRAINTS = {
   audio: {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    sampleRate: 48000,
-    channelCount: 1,
+    echoCancellation: { ideal: true },
+    noiseSuppression: { ideal: true },
+    autoGainControl:  { ideal: true },
+    // Explicitly request high-pass filter to cut low-frequency noise
+    highpassFilter:   { ideal: true },
+    sampleRate:       48000,
+    channelCount:     1,
+    // Latency hint - 'speech' optimizes for voice calls
+    latency:          0.01,
   },
   video: false,
 }

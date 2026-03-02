@@ -522,6 +522,9 @@ export default function WorkspacePage() {
       rs: 'rust', jsx: 'react', tsx: 'react-ts',
     }[language] || language
 
+    // On mobile, always open the terminal/panel
+    if (isMobile) { setMobileSidebarOpen(false); setMobilePanelOpen(true) }
+
     // HTML/React → open inline preview
     if (['html', 'tailwind', 'react', 'react-ts', 'jsx', 'tsx'].includes(execLang)) {
       setShowPreview(true)
@@ -690,11 +693,21 @@ export default function WorkspacePage() {
             ))}
             <span style={{ fontSize:10,color:C.muted,marginLeft:1,fontFamily:'monospace' }}>{(onlineUsers||[]).length||1}</span>
           </div>
-          {/* Mobile: show only essential buttons */}
+          {/* Mobile: mic + camera + screen + run + leave */}
           {isMobile ? (<>
-            <button style={S.btn(micOn)} onClick={async()=>{ if(micOn){stopVoiceChat()}else{try{await startVoiceChat()}catch(e){toast.error('Mic: '+e.message)}} }}>{micOn?'🔴':'🎙️'}</button>
+            <button style={S.btn(micOn)} title={micOn?'Mute':'Unmute'}
+              onClick={async()=>{ if(micOn){stopVoiceChat();toast.info('Mic off')}else{try{await startVoiceChat();toast.success('🎙️ On')}catch(e){toast.error('Mic: '+e.message)}} }}>
+              {micOn?'🔴':'🎙️'}
+            </button>
+            <button style={S.btn(cameraOn)} title={cameraOn?'Camera off':'Camera on'}
+              onClick={async()=>{ if(cameraOn){stopCameraShare();toast.info('Camera off')}else{try{await startCameraShare();toast.success('📷 On')}catch(e){toast.error('Cam: '+e.message)}} }}>
+              {cameraOn?'📷':'📷'}
+            </button>
+            <button style={S.btn(screenOn)} title={screenOn?'Stop sharing':'Share screen'}
+              onClick={async()=>{ if(screenOn){stopScreenShare();toast.info('Stopped')}else{try{await startScreenShare();toast.success('🖥️ Sharing')}catch(e){if(e.name!=='NotAllowedError')toast.error(e.message)}} }}>
+              🖥️
+            </button>
             <button style={S.btn(false)} onClick={handleRunCode}>▶</button>
-            <button style={S.btn(false)} onClick={()=>setMobilePanelOpen(o=>!o)}>⚡</button>
             <button onClick={()=>navigate('/dashboard')} style={S.btn(false,true)}>✕</button>
           </>) : (<>
             <button style={S.btn(micOn)} onClick={async()=>{ if(micOn){stopVoiceChat();toast.info('Mic off')} else{try{await startVoiceChat();toast.success('🎙️ Voice on')}catch(e){toast.error('Mic: '+e.message)}} }}>🎙️ {micOn?'Live':'Mic'}</button>
