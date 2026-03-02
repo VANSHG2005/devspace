@@ -2,8 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import { useSelector } from 'react-redux'
 import { getSocket, EVENTS } from '../utils/socket'
 
-// Use Metered TURN servers (free tier, reliable)
-const ICE_SERVERS = {
+const ICE_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -18,8 +17,6 @@ const ICE_SERVERS = {
     },
   ],
   iceCandidatePoolSize: 10,
-  bundlePolicy: 'max-bundle',
-  rtcpMuxPolicy: 'require',
 }
 
 const AUDIO_CONSTRAINTS = {
@@ -37,30 +34,34 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
   const { user } = useSelector(s => s.auth)
   const { onlineUsers } = useSelector(s => s.workspace)
 
+  // Use refs so all callbacks always read latest values without re-creating
+  const onlineUsersRef = useRef([])
+  const userRef = useRef(null)
+  useEffect(() => { onlineUsersRef.current = onlineUsers || [] }, [onlineUsers])
+  useEffect(() => { userRef.current = user }, [user])
+
   const [micOn, setMicOn]       = useState(false)
   const [screenOn, setScreenOn] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
 
-  const localAudioRef  = useRef(null)
+  const localAudioRef   = useRef(null)
   const screenStreamRef = useRef(null)
   const cameraStreamRef = useRef(null)
 
-  // peer maps: { [userId]: RTCPeerConnection }
   const voicePeers  = useRef({})
   const screenPeers = useRef({})
   const cameraPeers = useRef({})
 
-  // Keep audio elements alive (prevent GC)
   const audioElements = useRef([])
 
-  // ── Play remote audio ─────────────────────────────────────────────────────
-  const playAudio = useCallback((stream) => {
+  // ── Play remote audio ───────────────────────────────────────────────────
+  const playAudio = (stream) => {
     const audio = new Audio()
     audio.srcObject = stream
     audio.autoplay  = true
     audio.muted     = false
     audio.volume    = 1.0
-    audio.play().catch(err => console.warn('[WebRTC] audio play blocked:', err))
+    audio.play().catch(e => console.warn('[RTC] audio.play():', e.message))
     audioElements.current.push(audio)
     stream.getTracks().forEach(t => {
       t.onended = () => {
@@ -68,263 +69,243 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
         audioElements.current = audioElements.current.filter(a => a !== audio)
       }
     })
-  }, [])
+  }
 
-  // ── Create a peer connection with logging ─────────────────────────────────
-  const createPC = useCallback((peerId, kind) => {
-    const pc = new RTCPeerConnection(ICE_SERVERS)
+  // ── Build a peer connection ─────────────────────────────────────────────
+  const makePeer = (peerId, kind) => {
+    const pc = new RTCPeerConnection(ICE_CONFIG)
     pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] ${kind} peer ${peerId}: ${pc.connectionState}`)
-      if (pc.connectionState === 'failed') {
-        console.warn('[WebRTC] connection failed — restarting ICE')
-        try { pc.restartIce() } catch {}
-      }
+      console.log(`[RTC] ${kind} → ${peerId}: ${pc.connectionState}`)
+      if (pc.connectionState === 'failed') pc.restartIce()
     }
-    pc.oniceconnectionstatechange = () => {
-      console.log(`[WebRTC] ICE ${kind} peer ${peerId}: ${pc.iceConnectionState}`)
-    }
-    pc.onicegatheringstatechange = () => {
-      console.log(`[WebRTC] ICE gathering ${kind}: ${pc.iceGatheringState}`)
-    }
+    pc.oniceconnectionstatechange = () =>
+      console.log(`[RTC] ICE ${kind} → ${peerId}: ${pc.iceConnectionState}`)
     return pc
-  }, [])
+  }
 
-  // ── Signal handler ────────────────────────────────────────────────────────
+  // ── Signal handlers (stable — use refs) ────────────────────────────────
+  const voicePeersRef  = voicePeers
+  const screenPeersRef = screenPeers
+  const cameraPeersRef = cameraPeers
+
   useEffect(() => {
     const socket = getSocket()
     if (!socket) return
 
     const onSignal = async ({ from, fromName, signal, type }) => {
-      if (!from || from === user?.id) return
-      console.log('[WebRTC] received signal:', type, 'from', from)
+      if (!from || from === userRef.current?.id) return
+      console.log('[RTC] signal:', type, 'from', fromName || from)
 
       try {
-        if (type === 'voice-offer')   await handleVoiceOffer(from, signal)
-        else if (type === 'voice-answer')  await setRemoteDesc(voicePeers.current[from], signal)
+        if      (type === 'voice-offer')   await handleVoiceOffer(from, signal)
+        else if (type === 'voice-answer')  await applyAnswer(voicePeersRef.current[from], signal)
         else if (type === 'screen-offer')  await handleMediaOffer(from, fromName, signal, 'screen')
-        else if (type === 'screen-answer') await setRemoteDesc(screenPeers.current[from], signal)
+        else if (type === 'screen-answer') await applyAnswer(screenPeersRef.current[from], signal)
         else if (type === 'camera-offer')  await handleMediaOffer(from, fromName, signal, 'camera')
-        else if (type === 'camera-answer') await setRemoteDesc(cameraPeers.current[from], signal)
-        else if (type === 'ice-voice')  await addIce(voicePeers.current[from], signal)
-        else if (type === 'ice-screen') await addIce(screenPeers.current[from], signal)
-        else if (type === 'ice-camera') await addIce(cameraPeers.current[from], signal)
-      } catch (err) {
-        console.error('[WebRTC] signal handling error:', err)
+        else if (type === 'camera-answer') await applyAnswer(cameraPeersRef.current[from], signal)
+        else if (type === 'ice-voice')     await addIce(voicePeersRef.current[from], signal)
+        else if (type === 'ice-screen')    await addIce(screenPeersRef.current[from], signal)
+        else if (type === 'ice-camera')    await addIce(cameraPeersRef.current[from], signal)
+      } catch (e) {
+        console.error('[RTC] signal error:', e)
       }
     }
 
     socket.on(EVENTS.WEBRTC_SIGNAL, onSignal)
     return () => socket.off(EVENTS.WEBRTC_SIGNAL, onSignal)
-  }, [user?.id])  // NOTE: handlers below use useRef so no deps needed
+  }, [])  // empty deps — uses refs throughout
 
-  const setRemoteDesc = async (pc, signal) => {
-    if (!pc || pc.signalingState === 'closed') return
-    try { await pc.setRemoteDescription(new RTCSessionDescription(signal)) }
-    catch (e) { console.warn('[WebRTC] setRemoteDesc error:', e.message) }
+  const applyAnswer = async (pc, signal) => {
+    if (!pc || pc.signalingState === 'closed' || pc.signalingState === 'stable') return
+    await pc.setRemoteDescription(new RTCSessionDescription(signal))
   }
 
   const addIce = async (pc, signal) => {
     if (!pc || pc.signalingState === 'closed') return
-    try { await pc.addIceCandidate(new RTCIceCandidate(signal)) }
-    catch (e) { console.warn('[WebRTC] addIce error:', e.message) }
+    try { await pc.addIceCandidate(new RTCIceCandidate(signal)) } catch {}
   }
 
-  // ── Incoming voice offer ──────────────────────────────────────────────────
+  // ── Incoming voice offer ────────────────────────────────────────────────
   const handleVoiceOffer = async (fromId, offer) => {
     const socket = getSocket()
-    console.log('[WebRTC] handling voice offer from', fromId)
+    if (voicePeersRef.current[fromId]) voicePeersRef.current[fromId].close()
 
-    if (voicePeers.current[fromId]) {
-      try { voicePeers.current[fromId].close() } catch {}
-    }
+    const pc = makePeer(fromId, 'voice')
+    voicePeersRef.current[fromId] = pc
 
-    const pc = createPC(fromId, 'voice')
-    voicePeers.current[fromId] = pc
-
-    // Add our local audio if mic is on
+    // If we are also broadcasting mic, add our stream
     if (localAudioRef.current) {
-      localAudioRef.current.getTracks().forEach(t => pc.addTrack(t, localAudioRef.current))
+      localAudioRef.current.getTracks().forEach(t =>
+        pc.addTrack(t, localAudioRef.current))
     }
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: fromId, signal: candidate, type: 'ice-voice' })
+      if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL,
+        { to: fromId, signal: candidate, type: 'ice-voice' })
     }
     pc.ontrack = ({ streams }) => {
-      console.log('[WebRTC] received remote audio track')
+      console.log('[RTC] got remote audio')
       if (streams[0]) playAudio(streams[0])
     }
 
-    await setRemoteDesc(pc, offer)
+    await pc.setRemoteDescription(new RTCSessionDescription(offer))
     const answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
     socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: fromId, signal: answer, type: 'voice-answer' })
   }
 
-  // ── Incoming screen/camera offer ──────────────────────────────────────────
+  // ── Incoming screen / camera offer ─────────────────────────────────────
   const handleMediaOffer = async (fromId, fromName, offer, kind) => {
     const socket = getSocket()
-    const peersRef = kind === 'screen' ? screenPeers : cameraPeers
-    console.log(`[WebRTC] handling ${kind} offer from`, fromId)
+    const peersRef = kind === 'screen' ? screenPeersRef : cameraPeersRef
+    if (peersRef.current[fromId]) peersRef.current[fromId].close()
 
-    if (peersRef.current[fromId]) {
-      try { peersRef.current[fromId].close() } catch {}
-    }
-
-    const pc = createPC(fromId, kind)
+    const pc = makePeer(fromId, kind)
     peersRef.current[fromId] = pc
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: fromId, signal: candidate, type: `ice-${kind}` })
+      if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL,
+        { to: fromId, signal: candidate, type: `ice-${kind}` })
     }
 
     pc.ontrack = ({ streams }) => {
-      console.log(`[WebRTC] received ${kind} track from`, fromName, streams[0])
-      if (!streams[0]) return
-      if (setMediaStreams) {
-        setMediaStreams(prev => {
-          const next = prev.filter(s => !(s.fromId === fromId && s.kind === kind))
-          return [...next, {
-            fromId, name: `${fromName}'s ${kind}`,
-            stream: streams[0], muted: kind !== 'camera',
-            kind, mirror: kind === 'camera',
-          }]
-        })
-        streams[0].getTracks().forEach(t => {
-          t.onended = () => setMediaStreams(prev => prev.filter(s => !(s.fromId === fromId && s.kind === kind)))
-        })
-      }
+      console.log(`[RTC] got remote ${kind} track`, streams)
+      if (!streams?.[0]) return
+      setMediaStreams?.(prev => {
+        const filtered = prev.filter(s => !(s.fromId === fromId && s.kind === kind))
+        return [...filtered, {
+          fromId,
+          name: `${fromName || 'User'}'s ${kind}`,
+          stream: streams[0],
+          muted: kind !== 'camera',
+          kind,
+          mirror: kind === 'camera',
+        }]
+      })
+      streams[0].getTracks().forEach(t => {
+        t.onended = () =>
+          setMediaStreams?.(prev => prev.filter(s => !(s.fromId === fromId && s.kind === kind)))
+      })
     }
 
-    await setRemoteDesc(pc, offer)
+    await pc.setRemoteDescription(new RTCSessionDescription(offer))
     const answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
     socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: fromId, signal: answer, type: `${kind}-answer` })
   }
 
-  // ── Offer to all online peers ─────────────────────────────────────────────
-  const offerToAll = useCallback(async (stream, peersRef, kind) => {
+  // ── Offer to every other user ───────────────────────────────────────────
+  const offerToAll = async (stream, peersRef, kind) => {
     const socket = getSocket()
-    if (!socket) { console.warn('[WebRTC] no socket'); return }
+    const me = userRef.current
+    const others = onlineUsersRef.current.filter(u => u.id !== me?.id)
 
-    const others = (onlineUsers || []).filter(u => u.id !== user?.id)
-    console.log(`[WebRTC] offering ${kind} to`, others.length, 'peers')
+    console.log(`[RTC] offering ${kind} to ${others.length} peers`, others.map(u => u.name))
+
+    if (others.length === 0) {
+      console.warn('[RTC] no other users in room — nobody to offer to')
+      return
+    }
 
     for (const other of others) {
-      if (peersRef.current[other.id]) {
-        try { peersRef.current[other.id].close() } catch {}
-      }
+      if (peersRef.current[other.id]) peersRef.current[other.id].close()
 
-      const pc = createPC(other.id, kind)
+      const pc = makePeer(other.id, kind)
       peersRef.current[other.id] = pc
 
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
 
       pc.onicecandidate = ({ candidate }) => {
-        if (candidate) {
-          socket.emit(EVENTS.WEBRTC_SIGNAL, { to: other.id, signal: candidate, type: `ice-${kind}` })
-        }
+        if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL,
+          { to: other.id, signal: candidate, type: `ice-${kind}` })
       }
 
       if (kind === 'voice') {
         pc.ontrack = ({ streams }) => {
-          if (streams[0]) playAudio(streams[0])
+          if (streams?.[0]) playAudio(streams[0])
         }
       }
 
-      try {
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        socket.emit(EVENTS.WEBRTC_SIGNAL, {
-          to: other.id,
-          fromName: user?.name,
-          signal: offer,
-          type: `${kind}-offer`,
-        })
-        console.log(`[WebRTC] sent ${kind} offer to`, other.id)
-      } catch (err) {
-        console.error('[WebRTC] createOffer error:', err)
-      }
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      socket?.emit(EVENTS.WEBRTC_SIGNAL, {
+        to: other.id,
+        fromName: me?.name,
+        signal: offer,
+        type: `${kind}-offer`,
+      })
+      console.log(`[RTC] sent ${kind} offer to ${other.name}`)
     }
-  }, [onlineUsers, user, createPC, playAudio])
+  }
 
-  // ── Voice ─────────────────────────────────────────────────────────────────
-  const startVoiceChat = useCallback(async () => {
-    console.log('[WebRTC] starting voice...')
+  // ── Public: start / stop ────────────────────────────────────────────────
+  const startVoiceChat = async () => {
     const stream = await navigator.mediaDevices.getUserMedia(AUDIO_CONSTRAINTS)
     localAudioRef.current = stream
     setMicOn(true)
     await offerToAll(stream, voicePeers, 'voice')
-  }, [offerToAll])
+  }
 
-  const stopVoiceChat = useCallback(() => {
+  const stopVoiceChat = () => {
     localAudioRef.current?.getTracks().forEach(t => t.stop())
-    Object.values(voicePeers.current).forEach(pc => { try { pc.close() } catch {} })
+    Object.values(voicePeers.current).forEach(pc => pc.close())
     voicePeers.current = {}
     localAudioRef.current = null
     setMicOn(false)
-  }, [])
+  }
 
-  // ── Screen share ──────────────────────────────────────────────────────────
-  const startScreenShare = useCallback(async () => {
+  const startScreenShare = async () => {
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
       audio: true,
     })
     screenStreamRef.current = stream
     setScreenOn(true)
-    stream.getVideoTracks()[0].onended = () => stopScreenShare()
+    stream.getVideoTracks()[0].onended = stopScreenShare
 
-    if (setMediaStreams) {
-      setMediaStreams(prev => [
-        ...prev.filter(s => s.kind !== 'screen-local'),
-        { fromId: 'local', name: 'Your screen', stream, muted: true, kind: 'screen-local', mirror: false },
-      ])
-    }
+    setMediaStreams?.(prev => [
+      ...prev.filter(s => s.kind !== 'screen-local'),
+      { fromId: 'local', name: 'Your screen', stream, muted: true, kind: 'screen-local', mirror: false },
+    ])
     await offerToAll(stream, screenPeers, 'screen')
-  }, [offerToAll, setMediaStreams])
+  }
 
-  const stopScreenShare = useCallback(() => {
+  const stopScreenShare = () => {
     screenStreamRef.current?.getTracks().forEach(t => t.stop())
-    Object.values(screenPeers.current).forEach(pc => { try { pc.close() } catch {} })
+    Object.values(screenPeers.current).forEach(pc => pc.close())
     screenPeers.current = {}
     screenStreamRef.current = null
     setScreenOn(false)
-    if (setMediaStreams) setMediaStreams(prev => prev.filter(s => !['screen','screen-local'].includes(s.kind)))
-  }, [setMediaStreams])
+    setMediaStreams?.(prev => prev.filter(s => !['screen','screen-local'].includes(s.kind)))
+  }
 
-  // ── Camera ────────────────────────────────────────────────────────────────
-  const startCameraShare = useCallback(async () => {
+  const startCameraShare = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user', frameRate: { ideal: 30 } },
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
       audio: false,
     })
     cameraStreamRef.current = stream
     setCameraOn(true)
 
-    if (setMediaStreams) {
-      setMediaStreams(prev => [
-        ...prev.filter(s => s.kind !== 'camera-local'),
-        { fromId: 'local-cam', name: 'Your camera', stream, muted: true, kind: 'camera-local', mirror: true },
-      ])
-    }
+    setMediaStreams?.(prev => [
+      ...prev.filter(s => s.kind !== 'camera-local'),
+      { fromId: 'local-cam', name: 'Your camera', stream, muted: true, kind: 'camera-local', mirror: true },
+    ])
     await offerToAll(stream, cameraPeers, 'camera')
-  }, [offerToAll, setMediaStreams])
+  }
 
-  const stopCameraShare = useCallback(() => {
+  const stopCameraShare = () => {
     cameraStreamRef.current?.getTracks().forEach(t => t.stop())
-    Object.values(cameraPeers.current).forEach(pc => { try { pc.close() } catch {} })
+    Object.values(cameraPeers.current).forEach(pc => pc.close())
     cameraPeers.current = {}
     cameraStreamRef.current = null
     setCameraOn(false)
-    if (setMediaStreams) setMediaStreams(prev => prev.filter(s => !['camera','camera-local'].includes(s.kind)))
-  }, [setMediaStreams])
+    setMediaStreams?.(prev => prev.filter(s => !['camera','camera-local'].includes(s.kind)))
+  }
 
-  // ── Cleanup ───────────────────────────────────────────────────────────────
   useEffect(() => () => {
-    stopVoiceChat()
-    stopScreenShare()
-    stopCameraShare()
-    audioElements.current.forEach(a => { try { a.pause() } catch {} })
+    stopVoiceChat(); stopScreenShare(); stopCameraShare()
+    audioElements.current.forEach(a => a.pause())
     audioElements.current = []
   }, [])
 
