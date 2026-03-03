@@ -127,13 +127,20 @@ function FolderRow({ folder, isOpen, onToggle, onRename, onDelete, workspaceId, 
 function VideoEl({ stream, muted, height, mirror=false }) {
   const ref = useRef(null)
   useEffect(() => {
-    if (ref.current && stream) { ref.current.srcObject = stream; ref.current.play().catch(()=>{}) }
+    if (!ref.current) return
+    if (stream) {
+      ref.current.srcObject = stream
+      ref.current.play().catch(()=>{})
+    } else {
+      ref.current.srcObject = null
+    }
+    return () => { try { if (ref.current) ref.current.srcObject = null } catch(e){} }
   }, [stream])
   return <video ref={ref} autoPlay muted={muted} playsInline style={{ width:'100%', height, objectFit:'contain', display:'block', background:'#000', transform: mirror?'scaleX(-1)':'none' }} />
 }
 
 // ── Floating media window (screen share / camera) ─────────────────────────────
-function FloatingMedia({ streams, onClose }) {
+function FloatingMedia({ streams, onClose, onStopAll }) {
   const [pos, setPos] = useState({ x: Math.max(20, window.innerWidth-380), y: Math.max(20, window.innerHeight-270) })
   const [expanded, setExpanded] = useState(false)
   const [minimized, setMinimized] = useState(false)
@@ -500,8 +507,12 @@ export default function WorkspacePage() {
     }
   }
   const handleSetMediaStreams = (updater) => {
-    setMediaStreams(updater)
-    setMediaWindowOpen(true)  // auto-show window when any stream is added
+    setMediaStreams(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      // Only auto-open window when streams are added (not removed)
+      if (next.length > prev.length) setMediaWindowOpen(true)
+      return next
+    })
   }
   const { micOn, screenOn, cameraOn, startVoiceChat, stopVoiceChat, startScreenShare, stopScreenShare, startCameraShare, stopCameraShare } = useWebRTC(workspaceId, handleSetMediaStreams)
 
