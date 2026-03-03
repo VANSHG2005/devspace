@@ -159,7 +159,8 @@ function FloatingMedia({ streams, onClose }) {
         <span style={{ fontSize:11,color:'#7c6af7',fontWeight:700,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>📺 {streams.map(s=>s.name).join(' · ')}</span>
         <button onClick={()=>setMinimized(m=>!m)} style={sb('#6e6e8f')}>{minimized?'▲':'▬'}</button>
         <button onClick={()=>setExpanded(e=>!e)} style={sb('#82aaff')}>{expanded?'⊡':'⊞'}</button>
-        <button onClick={onClose} style={sb('#ff5370')}>✕</button>
+        <button title="Hide window (streams stay active)" onClick={onClose} style={sb('#f0c060')}>⊟</button>
+        <button title="Close streams" onClick={onStopAll} style={sb('#ff5370')}>✕</button>
       </div>
       {!minimized && (
         <div style={{ display:'grid',gridTemplateColumns:streams.length>1?'1fr 1fr':'1fr',background:'#000',gap:1 }}>
@@ -177,46 +178,124 @@ function FloatingMedia({ streams, onClose }) {
 }
 
 // ── Camera effects panel ──────────────────────────────────────────────────────
+const VIRTUAL_BACKGROUNDS = [
+  { id:'none',    label:'None',         color:'#1e1e2e',  preview:'#1e1e2e' },
+  { id:'blur',    label:'Blur BG',      color:'#0a0a0f',  preview:'blur' },
+  { id:'space',   label:'Space',        url:'https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=400&q=80' },
+  { id:'office',  label:'Office',       url:'https://images.unsplash.com/photo-1497366216548-37526070297c?w=400&q=80' },
+  { id:'nature',  label:'Nature',       url:'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&q=80' },
+  { id:'city',    label:'City Night',   url:'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=400&q=80' },
+  { id:'beach',   label:'Beach',        url:'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80' },
+  { id:'devspace',label:'DevSpace',     color:'linear-gradient(135deg,#0a0a0f 0%,#1a1040 50%,#0d0d20 100%)' },
+]
+
 function CameraEffects({ stream, onClose }) {
   const [blur, setBlur] = useState(0)
   const [brightness, setBrightness] = useState(100)
   const [contrast, setContrast] = useState(100)
+  const [bgId, setBgId] = useState('none')
+  const [customBg, setCustomBg] = useState(null)
+  const [tab, setTab] = useState('effects')  // 'effects' | 'background'
   const previewRef = useRef(null)
+  const fileInputRef = useRef(null)
+
   useEffect(() => {
     if (previewRef.current && stream) { previewRef.current.srcObject = stream; previewRef.current.play().catch(()=>{}) }
   }, [stream])
 
   const filter = `blur(${blur}px) brightness(${brightness}%) contrast(${contrast}%)`
+  const selectedBg = VIRTUAL_BACKGROUNDS.find(b=>b.id===bgId)
+
+  const handleUploadBg = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const url = URL.createObjectURL(file)
+    setCustomBg(url)
+    setBgId('custom')
+  }
+
+  const getBgStyle = (bg) => {
+    if (!bg || bg.id==='none') return {}
+    if (bg.id==='blur') return { backdropFilter:'blur(20px)', background:'rgba(0,0,0,0.3)' }
+    if (bg.id==='custom' && customBg) return { backgroundImage:`url(${customBg})`, backgroundSize:'cover', backgroundPosition:'center' }
+    if (bg.url) return { backgroundImage:`url(${bg.url})`, backgroundSize:'cover', backgroundPosition:'center' }
+    if (bg.color) return { background: bg.color }
+    return {}
+  }
+
+  const tabBtn = (id,label) => ({
+    flex:1, padding:'8px', border:'none', borderRadius:7, cursor:'pointer', fontFamily:'inherit',
+    fontSize:12, fontWeight:700, background: tab===id ? '#7c6af7' : 'transparent',
+    color: tab===id ? '#fff' : '#6e6e8f', transition:'all .15s'
+  })
 
   return (
     <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.9)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center' }} onClick={onClose}>
-      <div style={{ background:'#111118',border:'1px solid #1e1e2e',borderRadius:16,padding:28,width:440 }} onClick={e=>e.stopPropagation()}>
-        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20 }}>
-          <h3 style={{ fontSize:16,fontWeight:700,color:'#e2e2f0' }}>📷 Camera Effects</h3>
+      <div style={{ background:'#111118',border:'1px solid #1e1e2e',borderRadius:16,padding:24,width:480,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
+          <h3 style={{ fontSize:16,fontWeight:700,color:'#e2e2f0',margin:0 }}>📷 Camera Settings</h3>
           <button onClick={onClose} style={{ background:'rgba(255,255,255,0.08)',border:'none',color:'#6e6e8f',cursor:'pointer',width:28,height:28,borderRadius:6,fontSize:14 }}>✕</button>
         </div>
-        {/* Live preview with effects */}
-        <div style={{ position:'relative',marginBottom:20,borderRadius:10,overflow:'hidden',background:'#000',aspectRatio:'16/9' }}>
-          <video ref={previewRef} autoPlay muted playsInline style={{ width:'100%',height:'100%',objectFit:'cover',transform:'scaleX(-1)',filter }} />
+
+        {/* Tabs */}
+        <div style={{ display:'flex',gap:6,marginBottom:16,background:'#0a0a0f',borderRadius:9,padding:4 }}>
+          <button style={tabBtn('effects','🎨 Effects')} onClick={()=>setTab('effects')}>🎨 Effects</button>
+          <button style={tabBtn('background','🖼️ Background')} onClick={()=>setTab('background')}>🖼️ Background</button>
+        </div>
+
+        {/* Live preview */}
+        <div style={{ position:'relative',marginBottom:16,borderRadius:10,overflow:'hidden',background:'#000',aspectRatio:'16/9' }}>
+          <div style={{ position:'absolute',inset:0,...getBgStyle(bgId==='custom'?{id:'custom',url:customBg}:selectedBg) }} />
+          <video ref={previewRef} autoPlay muted playsInline style={{ position:'relative',width:'100%',height:'100%',objectFit:'cover',transform:'scaleX(-1)',filter,mixBlendMode: bgId!=='none'?'luminosity':'normal' }} />
           <div style={{ position:'absolute',bottom:8,left:8,background:'rgba(0,0,0,0.7)',padding:'2px 8px',borderRadius:4,fontSize:10,color:'#7c6af7',fontWeight:700 }}>PREVIEW</div>
         </div>
-        {/* Controls */}
-        {[
-          { label:'Background Blur', val:blur, set:setBlur, min:0, max:20, unit:'px', icon:'🌫️' },
-          { label:'Brightness', val:brightness, set:setBrightness, min:50, max:200, unit:'%', icon:'☀️' },
-          { label:'Contrast', val:contrast, set:setContrast, min:50, max:200, unit:'%', icon:'◑' },
-        ].map(ctrl => (
-          <div key={ctrl.label} style={{ marginBottom:16 }}>
-            <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:7 }}>
-              <span style={{ fontSize:13,color:'#e2e2f0',fontWeight:600 }}>{ctrl.icon} {ctrl.label}</span>
-              <span style={{ fontSize:12,color:'#7c6af7',fontFamily:'monospace',fontWeight:700 }}>{ctrl.val}{ctrl.unit}</span>
+
+        {tab==='effects' && (
+          <>
+            {[
+              { label:'Background Blur', val:blur, set:setBlur, min:0, max:20, unit:'px', icon:'🌫️' },
+              { label:'Brightness', val:brightness, set:setBrightness, min:50, max:200, unit:'%', icon:'☀️' },
+              { label:'Contrast', val:contrast, set:setContrast, min:50, max:200, unit:'%', icon:'◑' },
+            ].map(ctrl => (
+              <div key={ctrl.label} style={{ marginBottom:14 }}>
+                <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6 }}>
+                  <span style={{ fontSize:13,color:'#e2e2f0',fontWeight:600 }}>{ctrl.icon} {ctrl.label}</span>
+                  <span style={{ fontSize:12,color:'#7c6af7',fontFamily:'monospace',fontWeight:700 }}>{ctrl.val}{ctrl.unit}</span>
+                </div>
+                <input type="range" min={ctrl.min} max={ctrl.max} value={ctrl.val} onChange={e=>ctrl.set(+e.target.value)}
+                  style={{ width:'100%',accentColor:'#7c6af7',cursor:'pointer' }} />
+              </div>
+            ))}
+          </>
+        )}
+
+        {tab==='background' && (
+          <>
+            <div style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:12 }}>
+              {VIRTUAL_BACKGROUNDS.map(bg => (
+                <div key={bg.id} onClick={()=>setBgId(bg.id)}
+                  style={{ aspectRatio:'16/9',borderRadius:8,overflow:'hidden',cursor:'pointer',border:`2px solid ${bgId===bg.id?'#7c6af7':'transparent'}`,transition:'border-color .15s',position:'relative',
+                    ...(bg.url ? {backgroundImage:`url(${bg.url})`,backgroundSize:'cover',backgroundPosition:'center'} : {background:bg.color||'#1e1e2e'}) }}>
+                  {bg.id==='blur' && <div style={{ position:'absolute',inset:0,backdropFilter:'blur(4px)',background:'rgba(0,0,0,0.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18 }}>🌫️</div>}
+                  <div style={{ position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.65)',padding:'2px 4px',fontSize:9,color:'#fff',textAlign:'center',fontWeight:600 }}>{bg.label}</div>
+                  {bgId===bg.id && <div style={{ position:'absolute',top:4,right:4,width:14,height:14,borderRadius:'50%',background:'#7c6af7',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'#fff',fontWeight:900 }}>✓</div>}
+                </div>
+              ))}
+              {/* Custom upload tile */}
+              <div onClick={()=>fileInputRef.current?.click()}
+                style={{ aspectRatio:'16/9',borderRadius:8,border:`2px dashed ${bgId==='custom'?'#7c6af7':'#3a3a55'}`,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,background:'#0a0a0f',transition:'border-color .15s',
+                  ...(customBg?{backgroundImage:`url(${customBg})`,backgroundSize:'cover',backgroundPosition:'center'}:{}) }}>
+                <span style={{ fontSize:18 }}>📁</span>
+                <span style={{ fontSize:9,color:'#6e6e8f',fontWeight:600 }}>Upload</span>
+              </div>
             </div>
-            <input type="range" min={ctrl.min} max={ctrl.max} value={ctrl.val} onChange={e=>ctrl.set(+e.target.value)}
-              style={{ width:'100%',accentColor:'#7c6af7',cursor:'pointer' }} />
-          </div>
-        ))}
-        <div style={{ display:'flex',gap:10,marginTop:4 }}>
-          <button onClick={()=>{setBlur(0);setBrightness(100);setContrast(100)}} style={{ flex:1,padding:'9px',borderRadius:8,background:'transparent',border:'1px solid #1e1e2e',color:'#6e6e8f',cursor:'pointer',fontFamily:'inherit',fontSize:12 }}>Reset</button>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleUploadBg} style={{ display:'none' }} />
+            <p style={{ fontSize:11,color:'#6e6e8f',margin:'0 0 12px' }}>💡 Virtual background is a visual effect only — it doesn't process the actual video stream.</p>
+          </>
+        )}
+
+        <div style={{ display:'flex',gap:10,marginTop:8 }}>
+          <button onClick={()=>{setBlur(0);setBrightness(100);setContrast(100);setBgId('none');setCustomBg(null)}} style={{ flex:1,padding:'9px',borderRadius:8,background:'transparent',border:'1px solid #1e1e2e',color:'#6e6e8f',cursor:'pointer',fontFamily:'inherit',fontSize:12 }}>Reset All</button>
           <button onClick={onClose} style={{ flex:2,padding:'9px',borderRadius:8,background:'#7c6af7',border:'none',color:'#fff',cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700 }}>Apply & Close</button>
         </div>
       </div>
@@ -313,6 +392,7 @@ export default function WorkspacePage() {
   const wbScaleRef = useRef(1)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [mediaStreams, setMediaStreams] = useState([])
+  const [mediaWindowOpen, setMediaWindowOpen] = useState(true)
   const [showCameraEffects, setShowCameraEffects] = useState(false)
   const [renameItem, setRenameItem] = useState(null)
   const [localFiles, setLocalFiles] = useState([])
@@ -419,7 +499,11 @@ export default function WorkspacePage() {
       })
     }
   }
-  const { micOn, screenOn, cameraOn, startVoiceChat, stopVoiceChat, startScreenShare, stopScreenShare, startCameraShare, stopCameraShare } = useWebRTC(workspaceId, setMediaStreams)
+  const handleSetMediaStreams = (updater) => {
+    setMediaStreams(updater)
+    setMediaWindowOpen(true)  // auto-show window when any stream is added
+  }
+  const { micOn, screenOn, cameraOn, startVoiceChat, stopVoiceChat, startScreenShare, stopScreenShare, startCameraShare, stopCameraShare } = useWebRTC(workspaceId, handleSetMediaStreams)
 
   // Sync localFiles with redux files
   useEffect(() => { setLocalFiles(files) }, [files])
@@ -1159,7 +1243,13 @@ export default function WorkspacePage() {
       )}
 
       {/* Floating media */}
-      {mediaStreams.length>0 && <FloatingMedia streams={mediaStreams} onClose={()=>{stopScreenShare();stopCameraShare();setMediaStreams([])}} />}
+      {mediaStreams.length>0 && mediaWindowOpen && <FloatingMedia streams={mediaStreams} onClose={()=>setMediaWindowOpen(false)} onStopAll={()=>{stopScreenShare();stopCameraShare();setMediaStreams([]);setMediaWindowOpen(false)}} />}
+      {/* Reopen button when window is dismissed but streams are still active */}
+      {mediaStreams.length>0 && !mediaWindowOpen && (
+        <button onClick={()=>setMediaWindowOpen(true)} style={{ position:'fixed',bottom: isMobile ? 68 : 20,right:20,zIndex:9990,background:'#7c6af7',border:'none',borderRadius:10,color:'#fff',padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',boxShadow:'0 4px 20px rgba(124,106,247,0.5)',display:'flex',alignItems:'center',gap:6 }}>
+          📺 Show streams ({mediaStreams.length})
+        </button>
+      )}
 
       {/* Camera effects */}
       {showCameraEffects && cameraStream && <CameraEffects stream={cameraStream} onClose={()=>setShowCameraEffects(false)} />}

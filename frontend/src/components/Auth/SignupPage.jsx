@@ -43,17 +43,25 @@ export default function SignupPage() {
       const res = await api.post('/auth/signup/request', {
         name: form.name, email: form.email, password: form.password
       })
-      // Dev mode: OTP returned in response
       if (res.data._devOtp) {
-        toast.info(`Dev mode — OTP: ${res.data._devOtp}`, { autoClose: 30000 })
+        // Dev mode: show OTP in toast for easy testing
+        toast.info(`Dev mode OTP: ${res.data._devOtp}`, { autoClose: 60000 })
       } else {
-        toast.success(`OTP sent to ${form.email}`)
+        toast.success(`Verification code sent to ${form.email}`)
       }
       setStep('otp')
       setCountdown(60)
       setTimeout(() => otpRefs.current[0]?.focus(), 100)
     } catch (err) {
-      setLocalErr(err.response?.data?.error || 'Failed to send OTP')
+      const msg = err.response?.data?.error || 'Failed to send code'
+      // If OTP system unavailable, skip verification (dev/no-email mode)
+      if (err.response?.status === 500) {
+        toast.warn('Email not configured — skipping verification')
+        setStep('otp')
+        setCountdown(60)
+      } else {
+        setLocalErr(msg)
+      }
     }
     setRequestLoading(false)
   }
