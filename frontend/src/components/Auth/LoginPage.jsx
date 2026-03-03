@@ -9,18 +9,26 @@ const C = { bg:'#0a0a0f', surface:'#111118', border:'#1e1e2e', accent:'#7c6af7',
 export default function LoginPage() {
   const [form, setForm] = useState({ email:'', password:'' })
   const [showPw, setShowPw] = useState(false)
+  const [localErr, setLocalErr] = useState('')
   const dispatch = useDispatch()
   const navigate = useNavigate()
-  const { loading, error } = useSelector(s => s.auth)
+  const { loading } = useSelector(s => s.auth)
 
-  useEffect(() => { dispatch(clearError()); return () => dispatch(clearError()) }, [])
-  // Also show error as toast so it's never missed
-  useEffect(() => { if (error) toast.error(error) }, [error])
+  // Clear redux error on unmount only — use localErr for display so it never auto-clears
+  useEffect(() => { return () => dispatch(clearError()) }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setLocalErr('')
     const res = await dispatch(login(form))
-    if (res.meta.requestStatus === 'fulfilled') { toast.success('Welcome back! 👋'); navigate('/dashboard') }
+    if (res.meta.requestStatus === 'fulfilled') {
+      toast.success('Welcome back! 👋')
+      navigate('/dashboard')
+    } else {
+      // Store error in local state so it persists until user acts
+      const msg = res.payload || 'Login failed. Please try again.'
+      setLocalErr(msg)
+    }
   }
 
   const inp = (extra={}) => ({ width:'100%', padding:'11px 14px', background:'#0d0d14', border:`1px solid ${C.border}`, borderRadius:9, color:C.text, fontSize:14, fontFamily:'inherit', outline:'none', boxSizing:'border-box', transition:'border-color .15s', ...extra })
@@ -37,22 +45,28 @@ export default function LoginPage() {
         </div>
 
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:'clamp(20px, 5vw, 32px)', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
-          {error && (
-            <div style={{ padding:'10px 14px',background:`${C.red}12`,border:`1px solid ${C.red}35`,borderRadius:8,color:C.red,fontSize:13,marginBottom:20,display:'flex',alignItems:'center',gap:8 }}>
-              ⚠️ {error}
+
+          {localErr && (
+            <div style={{ padding:'12px 14px',background:`${C.red}15`,border:`1px solid ${C.red}40`,borderRadius:9,color:C.red,fontSize:13,marginBottom:20,display:'flex',alignItems:'center',gap:8,lineHeight:1.4 }}>
+              <span style={{ fontSize:16,flexShrink:0 }}>⚠️</span>
+              <span>{localErr}</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit}>
             <div style={{ marginBottom:16 }}>
               <label style={{ display:'block',fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.6px' }}>Email</label>
-              <input type="email" required autoComplete="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="you@company.com"
+              <input type="email" required autoComplete="email" value={form.email}
+                onChange={e=>{ setForm({...form,email:e.target.value}); setLocalErr('') }}
+                placeholder="you@company.com"
                 style={inp()} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} />
             </div>
             <div style={{ marginBottom:24 }}>
               <label style={{ display:'block',fontSize:11,fontWeight:700,color:C.muted,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.6px' }}>Password</label>
               <div style={{ position:'relative' }}>
-                <input type={showPw?'text':'password'} required autoComplete="current-password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="••••••••"
+                <input type={showPw?'text':'password'} required autoComplete="current-password" value={form.password}
+                  onChange={e=>{ setForm({...form,password:e.target.value}); setLocalErr('') }}
+                  placeholder="••••••••"
                   style={inp({paddingRight:44})} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} />
                 <button type="button" onClick={()=>setShowPw(v=>!v)} style={{ position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:14,padding:'2px' }}>
                   {showPw ? '🙈' : '👁️'}
