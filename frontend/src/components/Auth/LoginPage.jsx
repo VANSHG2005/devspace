@@ -13,7 +13,9 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const { loading, error } = useSelector(s => s.auth)
 
-  useEffect(() => { return () => dispatch(clearError()) }, [])
+  useEffect(() => { dispatch(clearError()); return () => dispatch(clearError()) }, [])
+  // Also show error as toast so it's never missed
+  useEffect(() => { if (error) toast.error(error) }, [error])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
