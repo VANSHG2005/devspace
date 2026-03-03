@@ -130,7 +130,48 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
     }
 
     socket.on(EVENTS.WEBRTC_SIGNAL, onSignal)
-    return () => socket.off(EVENTS.WEBRTC_SIGNAL, onSignal)
+
+    // ── When a new user joins, re-offer any active streams to them ──
+    const onUserJoined = async (userData) => {
+      const userId = userData.userId || userData.id
+      const name = userData.name
+      if (!userId || userId === userRef.current?.id) return
+      console.log('[RTC] new user joined:', name, '— re-offering active streams')
+      const me = userRef.current
+
+      const offerToOne = async (stream, peersRef, kind) => {
+        if (!stream) return
+        try {
+          if (peersRef.current[userId]) peersRef.current[userId].close()
+          const pc = makePeer(userId, kind)
+          peersRef.current[userId] = pc
+          stream.getTracks().forEach(t => pc.addTrack(t, stream))
+          pc.onicecandidate = ({ candidate }) => {
+            if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: userId, signal: candidate, type: `ice-${kind}` })
+          }
+          if (kind === 'voice') {
+            pc.ontrack = ({ streams }) => { if (streams?.[0]) playAudio(streams[0]) }
+          }
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: userId, fromName: me?.name, signal: offer, type: `${kind}-offer` })
+          console.log(`[RTC] re-offered ${kind} to new joiner ${name}`)
+        } catch(e) { console.error('[RTC] offerToOne error:', e) }
+      }
+
+      // Short delay so new user's socket is fully ready to receive
+      setTimeout(async () => {
+        if (localAudioRef.current)   await offerToOne(localAudioRef.current,   voicePeersRef,  'voice')
+        if (screenStreamRef.current) await offerToOne(screenStreamRef.current, screenPeersRef, 'screen')
+        if (cameraStreamRef.current) await offerToOne(cameraStreamRef.current, cameraPeersRef, 'camera')
+      }, 1500)
+    }
+
+    socket.on(EVENTS.USER_JOINED, onUserJoined)
+    return () => {
+      socket.off(EVENTS.WEBRTC_SIGNAL, onSignal)
+      socket.off(EVENTS.USER_JOINED, onUserJoined)
+    }
   }, [])  // empty deps — uses refs throughout
 
   const applyAnswer = async (pc, signal) => {
