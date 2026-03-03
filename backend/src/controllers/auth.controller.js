@@ -23,23 +23,7 @@ export const signupRequest = async (req, res, next) => {
     const { data: ex } = await supabaseAdmin.from('users').select('id').eq('email', email.toLowerCase()).single()
     if (ex) return res.status(409).json({ error: 'Email already registered' })
 
-    // Send OTP via Supabase Auth (uses Supabase's built-in email — no SMTP needed)
-    const { error } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'magiclink',
-      email: email.toLowerCase(),
-    })
-
-    // Fallback: use signInWithOtp which sends a 6-digit code
-    const { error: otpError } = await supabaseAdmin.auth.signInWithOtp({
-      email: email.toLowerCase(),
-      options: { shouldCreateUser: false }  // don't create Supabase auth user, we manage our own
-    })
-
-    if (otpError && otpError.message?.includes('not found')) {
-      // User doesn't exist in Supabase auth — that's fine, use our own OTP
-    }
-
-    // Use our own simple OTP stored in Supabase DB for reliability
+    // Generate OTP and store in Supabase
     const otp = Math.floor(100000 + Math.random() * 900000).toString()
     const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString()
 
@@ -47,19 +31,11 @@ export const signupRequest = async (req, res, next) => {
       email: email.toLowerCase(), otp, expires_at: expires, used: false
     }, { onConflict: 'email' })
 
-    // Try Supabase email via edge function or just return dev OTP
-    const isDev = process.env.NODE_ENV !== 'production'
+    // Send OTP email via nodemailer (set SMTP_* env vars in Render/Vercel)
+    const { sendOTPEmail } = await import('../utils/mailer.js')
+    await sendOTPEmail(email.toLowerCase(), otp)
 
-    // Attempt to send via Supabase's email (requires SMTP in Supabase dashboard)
-    // but don't fail if it doesn't work
-    try {
-      await supabaseAdmin.auth.admin.inviteUserByEmail(email.toLowerCase())
-    } catch {}
-
-    return res.json({
-      message: 'OTP generated',
-      _devOtp: isDev ? otp : undefined  // expose in dev mode only
-    })
+    return res.json({ message: 'Verification code sent to your email' })
   } catch (err) { next(err) }
 }
 
