@@ -7,6 +7,7 @@ const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
+  timeout: 30000,  // 30s timeout — prevents infinite spinner when Render is waking up
 });
 
 // Attach JWT to every request

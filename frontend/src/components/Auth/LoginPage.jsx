@@ -11,15 +11,20 @@ export default function LoginPage() {
   const [showPw, setShowPw]   = useState(false)
   const [localErr, setLocalErr] = useState('')
   const [loading, setLoading] = useState(false)
+  const [slowWarn, setSlowWarn] = useState(false)
   const dispatch  = useDispatch()
   const navigate  = useNavigate()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLocalErr('')
+    setSlowWarn(false)
     setLoading(true)
+    // Show warning if server takes more than 8s (Render cold start)
+    const slowTimer = setTimeout(() => setSlowWarn(true), 8000)
     try {
       const res = await dispatch(login(form))
+      clearTimeout(slowTimer)
       if (res.meta.requestStatus === 'fulfilled') {
         toast.success('Welcome back! 👋')
         navigate('/dashboard')
@@ -30,11 +35,15 @@ export default function LoginPage() {
         toast.error(msg)
       }
     } catch (err) {
-      const msg = 'Something went wrong. Please try again.'
+      clearTimeout(slowTimer)
+      const msg = err.code === 'ECONNABORTED'
+        ? 'Server is waking up — please try again in a moment.'
+        : 'Something went wrong. Please try again.'
       setLocalErr(msg)
       toast.error(msg)
     } finally {
       setLoading(false)
+      setSlowWarn(false)
     }
   }
 
@@ -109,6 +118,12 @@ export default function LoginPage() {
                 : 'Sign In →'}
             </button>
           </form>
+
+          {slowWarn && (
+            <p style={{ textAlign:'center',marginTop:12,fontSize:12,color:'#f0c060',display:'flex',alignItems:'center',justifyContent:'center',gap:6 }}>
+              ⏳ Server is waking up, please wait...
+            </p>
+          )}
 
           <p style={{ textAlign:'center',marginTop:20,fontSize:13,color:C.muted }}>
             Don't have an account?{' '}
