@@ -33,6 +33,20 @@ const buildICE = () => {
 
 const ICE_CONFIG = buildICE()
 
+// Wait for ICE gathering to complete (max 5s) before sending offer
+// This bundles all ICE candidates into the offer instead of trickling
+// which massively reduces connection time from 2-3min to 5-10s
+const waitForICE = (pc) => new Promise(resolve => {
+  if (pc.iceGatheringState === 'complete') return resolve()
+  const timeout = setTimeout(resolve, 5000) // max 5s wait
+  pc.onicegatheringstatechange = () => {
+    if (pc.iceGatheringState === 'complete') {
+      clearTimeout(timeout)
+      resolve()
+    }
+  }
+})
+
 const AUDIO_CONSTRAINTS = {
   audio: {
     echoCancellation: { ideal: true },
@@ -154,7 +168,8 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
           }
           const offer = await pc.createOffer()
           await pc.setLocalDescription(offer)
-          socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: userId, fromName: me?.name, signal: offer, type: `${kind}-offer` })
+          await waitForICE(pc)
+          socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: userId, fromName: me?.name, signal: pc.localDescription, type: `${kind}-offer` })
           console.log(`[RTC] re-offered ${kind} to new joiner ${name}`)
         } catch(e) { console.error('[RTC] offerToOne error:', e) }
       }
@@ -222,13 +237,21 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
     const pc = makePeer(fromId, kind)
     peersRef.current[fromId] = pc
 
+    // KEY FIX: If we also have the same kind of stream active, add it to this peer
+    // so the remote user can see ours too (bidirectional)
+    const ourStream = kind === 'screen' ? screenStreamRef.current : cameraStreamRef.current
+    if (ourStream) {
+      ourStream.getTracks().forEach(t => pc.addTrack(t, ourStream))
+      console.log(`[RTC] added our ${kind} to answer peer for ${fromName}`)
+    }
+
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) socket?.emit(EVENTS.WEBRTC_SIGNAL,
         { to: fromId, signal: candidate, type: `ice-${kind}` })
     }
 
     pc.ontrack = ({ streams }) => {
-      console.log(`[RTC] got remote ${kind} track`, streams)
+      console.log(`[RTC] got remote ${kind} track from ${fromName}`)
       if (!streams?.[0]) return
       setMediaStreams?.(prev => {
         const filtered = prev.filter(s => !(s.fromId === fromId && s.kind === kind))
@@ -236,7 +259,7 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
           fromId,
           name: `${fromName || 'User'}'s ${kind}`,
           stream: streams[0],
-          muted: kind !== 'camera',
+          muted: true,
           kind,
           mirror: kind === 'camera',
         }]
@@ -250,7 +273,8 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
     await pc.setRemoteDescription(new RTCSessionDescription(offer))
     const answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
-    socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: fromId, signal: answer, type: `${kind}-answer` })
+    await waitForICE(pc)
+    socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: fromId, signal: pc.localDescription, type: `${kind}-answer` })
   }
 
   // ── Offer to every other user ───────────────────────────────────────────
@@ -287,10 +311,13 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
 
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
+      // Wait for ICE gathering so all candidates are bundled in the offer
+      // This avoids the 2-3 min delay from slow trickle ICE over TURN
+      await waitForICE(pc)
       socket?.emit(EVENTS.WEBRTC_SIGNAL, {
         to: other.id,
         fromName: me?.name,
-        signal: offer,
+        signal: pc.localDescription,  // use localDescription which has gathered ICE
         type: `${kind}-offer`,
       })
       console.log(`[RTC] sent ${kind} offer to ${other.name}`)
