@@ -291,7 +291,28 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
     }
 
     for (const other of others) {
-      if (peersRef.current[other.id]) peersRef.current[other.id].close()
+      // Only close existing peer if it's actually broken — otherwise reuse it
+      const existing = peersRef.current[other.id]
+      if (existing && existing.connectionState !== 'closed' && existing.connectionState !== 'failed') {
+        // Add new tracks to existing peer via renegotiation
+        try {
+          stream.getTracks().forEach(t => {
+            const senders = existing.getSenders()
+            const hasSender = senders.some(s => s.track?.kind === t.kind)
+            if (!hasSender) existing.addTrack(t, stream)
+            else s => s.track?.kind === t.kind && existing.getSenders().find(s => s.track?.kind === t.kind)?.replaceTrack(t)
+          })
+          const offer = await existing.createOffer()
+          await existing.setLocalDescription(offer)
+          await waitForICE(existing)
+          socket?.emit(EVENTS.WEBRTC_SIGNAL, { to: other.id, fromName: me?.name, signal: existing.localDescription, type: `${kind}-offer` })
+          console.log(`[RTC] renegotiated ${kind} with ${other.name}`)
+          continue
+        } catch(e) {
+          console.warn('[RTC] renegotiation failed, creating new peer:', e.message)
+          existing.close()
+        }
+      }
 
       const pc = makePeer(other.id, kind)
       peersRef.current[other.id] = pc
@@ -311,13 +332,11 @@ export const useWebRTC = (workspaceId, setMediaStreams) => {
 
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
-      // Wait for ICE gathering so all candidates are bundled in the offer
-      // This avoids the 2-3 min delay from slow trickle ICE over TURN
       await waitForICE(pc)
       socket?.emit(EVENTS.WEBRTC_SIGNAL, {
         to: other.id,
         fromName: me?.name,
-        signal: pc.localDescription,  // use localDescription which has gathered ICE
+        signal: pc.localDescription,
         type: `${kind}-offer`,
       })
       console.log(`[RTC] sent ${kind} offer to ${other.name}`)

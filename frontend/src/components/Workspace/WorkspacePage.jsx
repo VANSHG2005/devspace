@@ -141,9 +141,10 @@ function VideoEl({ stream, muted, height, mirror=false }) {
 
 // ── Floating media window (screen share / camera) ─────────────────────────────
 function FloatingMedia({ streams, onClose, onStopAll }) {
-  const [pos, setPos] = useState({ x: Math.max(20, window.innerWidth-380), y: Math.max(20, window.innerHeight-290) })
+  const isMob = window.innerWidth < 600
+  // Mobile: anchored to bottom, full width. Desktop: draggable floating
+  const [pos, setPos] = useState({ x: Math.max(10, window.innerWidth-370), y: Math.max(10, window.innerHeight-300) })
   const [minimized, setMinimized] = useState(false)
-  // Per-stream state: 'normal' | 'fullscreen' | 'hidden'
   const [streamStates, setStreamStates] = useState({})
   const dragging = useRef(false); const offset = useRef({x:0,y:0})
 
@@ -152,20 +153,21 @@ function FloatingMedia({ streams, onClose, onStopAll }) {
   const getState = (s) => streamStates[s.kind+s.name] || 'normal'
   const setState = (s, val) => setStreamStates(p => ({ ...p, [s.kind+s.name]: val }))
 
-  const visibleStreams  = streams.filter(s => getState(s) !== 'hidden')
-  const fullStream      = streams.find(s => getState(s) === 'fullscreen')
-  const hiddenStreams   = streams.filter(s => getState(s) === 'hidden')
-  const normalStreams   = streams.filter(s => getState(s) === 'normal')
+  const visibleStreams = streams.filter(s => getState(s) !== 'hidden')
+  const fullStream     = streams.find(s => getState(s) === 'fullscreen')
+  const hiddenStreams  = streams.filter(s => getState(s) === 'hidden')
+  const normalStreams  = streams.filter(s => getState(s) === 'normal')
 
-  // Layout: if one is fullscreen show it big, others as pip row
-  const cols = fullStream ? 1 : (visibleStreams.length > 1 ? 2 : 1)
-  const W = fullStream ? Math.min(window.innerWidth - 40, 960) : 360
-  const bodyH = fullStream ? Math.min(window.innerHeight - 120, 580) : (minimized ? 0 : 210)
-  const X = fullStream ? 20 : pos.x
-  const Y = fullStream ? 20 : pos.y
+  const cols   = fullStream ? 1 : (visibleStreams.length > 1 ? 2 : 1)
+  // Mobile: full width, fixed at bottom. Desktop: 360px floating
+  const W      = isMob ? window.innerWidth : (fullStream ? Math.min(window.innerWidth-40, 960) : 360)
+  const bodyH  = fullStream ? Math.min(window.innerHeight-120, 580) : (minimized ? 0 : (isMob ? 180 : 210))
+  const X      = isMob ? 0 : (fullStream ? 20 : pos.x)
+  const Y      = isMob ? 'auto' : (fullStream ? 20 : pos.y)
+  const bottom = isMob ? 56 : 'auto'  // above mobile bottom nav
 
   const startDrag = (e) => {
-    if (fullStream || e.target.closest('button')) return
+    if (isMob || fullStream || e.target.closest('button')) return
     dragging.current = true; offset.current = {x:e.clientX-pos.x, y:e.clientY-pos.y}
     const move = ev => dragging.current && setPos({
       x: Math.max(0, Math.min(window.innerWidth-W, ev.clientX-offset.current.x)),
@@ -175,19 +177,19 @@ function FloatingMedia({ streams, onClose, onStopAll }) {
     window.addEventListener('mousemove',move); window.addEventListener('mouseup',up)
   }
 
-  const sb = (color, extra={}) => ({ background:`${color}22`, border:`1px solid ${color}55`, color, borderRadius:5, padding:'2px 7px', cursor:'pointer', fontSize:11, fontWeight:700, lineHeight:1.6, fontFamily:'inherit', ...extra })
+  const sb = (color, extra={}) => ({ background:`${color}22`, border:`1px solid ${color}55`, color, borderRadius:5, padding:'2px 7px', cursor:'pointer', fontSize:11, fontWeight:700, lineHeight:1.6, fontFamily:'inherit', flexShrink:0, ...extra })
 
   return (
-    <div style={{ position:'fixed', left:X, top:Y, width:W, zIndex:9999, background:'#0a0a0f', border:'2px solid #7c6af7', borderRadius:12, overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.95)', transition:'all 0.2s cubic-bezier(.16,1,.3,1)' }}>
+    <div style={{ position:'fixed', left:X, top:Y, bottom, width:W, maxWidth:'100vw', zIndex:9999, background:'#0a0a0f', border:'2px solid #7c6af7', borderRadius: isMob ? '12px 12px 0 0' : 12, overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.95)', transition:'all 0.2s cubic-bezier(.16,1,.3,1)' }}>
       {/* Title bar */}
-      <div onMouseDown={startDrag} style={{ height:34, background:'#16161f', display:'flex', alignItems:'center', padding:'0 8px', gap:5, cursor:fullStream?'default':'move', userSelect:'none', borderBottom:'1px solid #1e1e2e' }}>
-        <span style={{ fontSize:10, color:'#7c6af7', fontWeight:700, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+      <div onMouseDown={startDrag} style={{ height:34, background:'#16161f', display:'flex', alignItems:'center', padding:'0 8px', gap:4, cursor:(isMob||fullStream)?'default':'move', userSelect:'none', borderBottom:'1px solid #1e1e2e', minWidth:0 }}>
+        <span style={{ fontSize:10, color:'#7c6af7', fontWeight:700, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
           📺 {streams.map(s=>s.name).join(' · ')}
-          {hiddenStreams.length > 0 && <span style={{ color:'#f0c060', marginLeft:6 }}>({hiddenStreams.length} hidden)</span>}
+          {hiddenStreams.length > 0 && <span style={{ color:'#f0c060', marginLeft:4 }}>+{hiddenStreams.length}</span>}
         </span>
         <button onClick={()=>setMinimized(m=>!m)} style={sb('#6e6e8f')}>{minimized?'▲':'▬'}</button>
-        <button title="Hide window (streams stay active)" onClick={onClose} style={sb('#f0c060')}>⊟</button>
-        <button title="Stop all streams" onClick={onStopAll} style={sb('#ff5370')}>✕</button>
+        <button title="Hide window" onClick={onClose} style={sb('#f0c060')}>⊟</button>
+        <button title="Stop all" onClick={onStopAll} style={sb('#ff5370')}>✕</button>
       </div>
 
       {!minimized && (
@@ -196,7 +198,7 @@ function FloatingMedia({ streams, onClose, onStopAll }) {
           {fullStream && (
             <div style={{ position:'relative' }}>
               <VideoEl stream={fullStream.stream} muted={fullStream.muted} height={bodyH} mirror={fullStream.mirror ?? fullStream.kind==='camera-local'} />
-              <div style={{ position:'absolute', top:8, right:8, display:'flex', gap:4 }}>
+              <div style={{ position:'absolute', top:8, right:8 }}>
                 <button onClick={()=>setState(fullStream,'normal')} style={sb('#82aaff',{padding:'3px 10px',fontSize:12})}>⊡ Exit Full</button>
               </div>
               <div style={{ position:'absolute', bottom:8, left:10, background:'rgba(0,0,0,0.75)', padding:'2px 8px', borderRadius:4, fontSize:11, color:'#fff' }}>{fullStream.name}</div>
@@ -208,13 +210,12 @@ function FloatingMedia({ streams, onClose, onStopAll }) {
             <div style={{ display:'grid', gridTemplateColumns:`repeat(${cols},1fr)`, background:'#000', gap:1 }}>
               {(fullStream ? normalStreams : visibleStreams).map((s,i) => (
                 <div key={i} style={{ position:'relative', background:'#000' }}>
-                  <VideoEl stream={s.stream} muted={s.muted} height={fullStream ? 100 : bodyH} mirror={s.mirror ?? s.kind==='camera-local'} />
-                  {/* Per-stream controls overlay */}
-                  <div style={{ position:'absolute', top:4, right:4, display:'flex', gap:3, opacity:0.9 }}>
-                    <button title="Fullscreen" onClick={()=>{ setStreamStates(p=>{ const n={...p}; streams.forEach(st=>{ if(st!==s) n[st.kind+st.name]='normal' }); n[s.kind+s.name]='fullscreen'; return n }) }} style={sb('#82aaff',{padding:'2px 6px'})}>⛶</button>
-                    <button title="Hide stream" onClick={()=>setState(s,'hidden')} style={sb('#f0c060',{padding:'2px 6px'})}>—</button>
+                  <VideoEl stream={s.stream} muted={s.muted} height={fullStream ? 90 : bodyH} mirror={s.mirror ?? s.kind==='camera-local'} />
+                  <div style={{ position:'absolute', top:4, right:4, display:'flex', gap:3 }}>
+                    <button title="Fullscreen" onClick={()=>{ setStreamStates(p=>{ const n={...p}; streams.forEach(st=>{ if(st!==s) n[st.kind+st.name]='normal' }); n[s.kind+s.name]='fullscreen'; return n }) }} style={sb('#82aaff',{padding:'2px 5px'})}>⛶</button>
+                    <button title="Hide" onClick={()=>setState(s,'hidden')} style={sb('#f0c060',{padding:'2px 5px'})}>—</button>
                   </div>
-                  <div style={{ position:'absolute', bottom:4, left:6, background:'rgba(0,0,0,0.75)', padding:'1px 7px', borderRadius:4, fontSize:10, color:'#fff' }}>{s.name}</div>
+                  <div style={{ position:'absolute', bottom:4, left:6, background:'rgba(0,0,0,0.75)', padding:'1px 6px', borderRadius:4, fontSize:10, color:'#fff', maxWidth:'45%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.name}</div>
                 </div>
               ))}
             </div>
@@ -222,9 +223,9 @@ function FloatingMedia({ streams, onClose, onStopAll }) {
 
           {/* Hidden streams — reopen bar */}
           {hiddenStreams.length > 0 && (
-            <div style={{ background:'#111118', borderTop:'1px solid #1e1e2e', padding:'5px 8px', display:'flex', gap:5, flexWrap:'wrap' }}>
+            <div style={{ background:'#111118', borderTop:'1px solid #1e1e2e', padding:'4px 8px', display:'flex', gap:4, flexWrap:'wrap' }}>
               {hiddenStreams.map((s,i) => (
-                <button key={i} onClick={()=>setState(s,'normal')} style={sb('#7c6af7',{padding:'3px 10px',fontSize:11})}>
+                <button key={i} onClick={()=>setState(s,'normal')} style={sb('#7c6af7',{padding:'3px 8px',fontSize:11})}>
                   👁 {s.name}
                 </button>
               ))}
